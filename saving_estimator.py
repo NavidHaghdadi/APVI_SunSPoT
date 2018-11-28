@@ -11,7 +11,7 @@ import os
 
 # ---------- Preparing inputs for testing -----------
 # Load profile (kWh)
-LP = requests.get('https://energytariff.herokuapp.com/LoadProfiles/Avg')
+LP = requests.get('http://api.ceem.org.au/LoadProfiles/Avg')
 LP = LP.json()
 df = pd.DataFrame.from_dict(LP, orient='columns')
 df['TS'] = pd.to_datetime(df['TS'], unit='ms')
@@ -26,7 +26,7 @@ pv_profile['TS'] = pd.to_datetime(pv_profile.TS)
 
 # Tariff
 Tariff_name = " AGL TOU Residential"
-all_tariffs = requests.get('https://energytariff.herokuapp.com/Tariffs/AllTariffs')
+all_tariffs = requests.get('http://api.ceem.org.au/Tariffs/AllTariffs')
 all_tariffs = all_tariffs.json()
 for i in range(len(all_tariffs)):
     if all_tariffs[i]['Name'] == Tariff_name:

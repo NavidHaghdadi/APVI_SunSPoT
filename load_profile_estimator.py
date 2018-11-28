@@ -7,7 +7,9 @@ import io
 import os
 import requests
 import pandas as pd
-# Example of creating the user input file with format:
+
+# ---------- Example of creating the user input file with format -----------
+
 user_inputs = {'postcode': 2033, 'load_profile_provided': 'yes', 'family_size': '2', 'pool': 'yes',
                'controlled_load': 'yes', 'AC': 'yes', 'dwell': 'house', 'smart_meter': 'yes',
                'previous_usage': {'Bill 1': {'total': 'N/A', 'peak': '100', 'offpeak': '100', 'shoulder': '100',
@@ -15,17 +17,17 @@ user_inputs = {'postcode': 2033, 'load_profile_provided': 'yes', 'family_size': 
                                   'Bill 2': {'total': 'N/A', 'peak': '120', 'offpeak': '110', 'shoulder': '50',
                                   'start_date': '2018-01-01', 'end_date': '2018-02-01'}}}
 
-cwd = os.getcwd()
-user_inputs_str = json.dumps(user_inputs)
-# to_unicode = str
-with io.open(os.path.join(cwd, 'user_inputs.json'), 'w', encoding='utf8') as outfile:
-    outfile.write(str(user_inputs_str))
+# cwd = os.getcwd()
+# user_inputs_str = json.dumps(user_inputs)
+# with io.open(os.path.join(cwd, 'user_inputs.json'), 'w', encoding='utf8') as outfile:
+#     outfile.write(str(user_inputs_str))
 
 
+# ---------- Function -----------
 def estimator(user_inouts):
     # As mentioned the function for estimating the load profile is not final yet. So here a mock load file is used. We
     # may want to use weather data to adjust the load profile and create a typical load profile.
-    LP = requests.get('https://energytariff.herokuapp.com/LoadProfiles/Avg')
+    LP = requests.get('http://api.ceem.org.au/LoadProfiles/Avg')
     LP = LP.json()
     df = pd.DataFrame.from_dict(LP, orient='columns')
     df['TS'] = pd.to_datetime(df['TS'], unit='ms')
