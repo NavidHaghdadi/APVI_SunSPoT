@@ -8,7 +8,7 @@ import numpy as np
 # ---------- Preparing inputs for testing -----------------
 
 # Tariffs can be downloaded from our API centre:
-all_tariffs = requests.get('https://energytariff.herokuapp.com/Tariffs/AllTariffs')
+all_tariffs = requests.get('http://api.ceem.org.au/Tariffs/AllTariffs')
 
 # This is used to populate the dropdown list (use the "Name" key to show in the list). I will provide a list which maps
 # the location (or postcode) to distributor so the list should be filtered to the user's distributor. Use the key
@@ -19,11 +19,12 @@ all_tariffs = requests.get('https://energytariff.herokuapp.com/Tariffs/AllTariff
 # It can be done by the tariff code or the tariff name. For example lets assume user has selected tariff
 
 Tariff_name = " AGL TOU Residential"
-all_tariffs = requests.get('https://energytariff.herokuapp.com/Tariffs/AllTariffs')
+all_tariffs = requests.get('http://api.ceem.org.au/Tariffs/AllTariffs')
 all_tariffs = all_tariffs.json()
 for i in range(len(all_tariffs)):
     if all_tariffs[i]['Name'] == Tariff_name:
         selected_tariff = all_tariffs[i]
+
 
 # This 'selected tariff is the input for calculating the bill. User can also change the tariff parameters.
 #  For example the daily parameter can be changed to a new number:
@@ -35,7 +36,7 @@ for i in range(len(all_tariffs)):
 # In the other function in load_profile_estimator.py, we will estimate the load profile of user based on the variety
 # of inputs. Here for testing, we use the load profile from the below API
 
-LP = requests.get('https://energytariff.herokuapp.com/LoadProfiles/Avg')
+LP = requests.get('http://api.ceem.org.au/LoadProfiles/Avg')
 LP = LP.json()
 df = pd.DataFrame.from_dict(LP, orient='columns')
 df['TS'] = pd.to_datetime(df['TS'], unit='ms')
