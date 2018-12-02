@@ -1,1 +1,0 @@
-from bill_calculator import calc
