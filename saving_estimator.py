@@ -1,6 +1,7 @@
 # This function is for estimating financial benefits of installing PV
 
 import numpy as np
+import pandas as pd
 # When user selects the area the PV profile is being generated (assuming it is a dataframe like the sample load profile)
 # Also the load profile of user is being generated (with or without user's inputs)
 # And the tariff is selected by user as described in bill_calculator

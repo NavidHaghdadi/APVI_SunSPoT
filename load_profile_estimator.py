@@ -3,7 +3,6 @@
 # the detail of the function is not yet finalised so the current file is only provided for input and output format.
 #
 import json
-import io
 import os
 import requests
 import pandas as pd
