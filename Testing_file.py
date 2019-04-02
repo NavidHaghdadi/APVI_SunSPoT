@@ -2,6 +2,7 @@
 import pandas as pd
 import requests
 import os
+import json
 from saving_estimator import saving_est   # here we only import to test this function
 
 
@@ -18,12 +19,13 @@ load_profile = df.copy()
 
 # PV Profile (kWh) - this file is the output of Jessie's functions - here we use a sample PV profile from excel file
 cwd = os.getcwd()
-xl = pd.ExcelFile(os.path.join(cwd, "PVProfile.xlsx"))
-pv_profile = xl.parse('testdata')
-pv_profile['TS'] = pd.to_datetime(pv_profile.TS)
+pv_profile = pd.read_csv(os.path.join(cwd, "PVProfile_Example.csv"))
+pv_profile['TS'] = pd.to_datetime(pv_profile['TS'],format='%d/%m/%Y %H:%M')
 
 # Tariff - this will be selected by used from a list of tariffs in the dropdown list here we use a sample for testing
 Tariff_name = "Origin Flat Rate NSW (Endeavour area)"
+Tariff_name = "Power Direct TOU NSW"
+
 all_tariffs = requests.get('http://api.ceem.org.au/elec-tariffs/retail')
 all_tariffs = all_tariffs.json()
 for i in range(len(all_tariffs)):
@@ -31,5 +33,11 @@ for i in range(len(all_tariffs)):
         selected_tariff = all_tariffs[i]
 
 # Testing the function for estimating saving (saving_est.py)
+pv_size_kw=1  # 3 kW
 
-saving_est(load_profile, pv_profile, selected_tariff)
+user_inputs = json.load(open('user_inputs_Example.json'))
+
+battery_kW=5
+battery_kWh=5
+distributor='Ausgrid'
+saving_est(user_inputs, pv_profile, selected_tariff,pv_size_kw,battery_kW,battery_kWh,distributor)
