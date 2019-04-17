@@ -1,23 +1,36 @@
-# This function is for estimating financial benefits of installing PV
-
+# This function is for estimating financial benefits of installing PV and battery
+# VERY IMPORTANT: ALL KW AND KWH SHOULD BE CHECKED AGAIN
 import numpy as np
 import pandas as pd
 import pickle
 import requests
 import os
 import json
+import warnings
 
-# When user selects the area the PV profile is being generated (assuming it is a dataframe like the sample load profile)
+warnings.filterwarnings("ignore")
+
+
+# When user selects the area the PV profile is being generated
+# (currently inputted as a csv file e.g. H_output.csv from Jessie)
 # Also the load profile of user is being generated (with or without user's inputs)
 # And the tariff is selected by user as described in bill_calculator
 # a set of sample inputs for this function is provided in Testing_files.py
+# This file contains four functions:
+#  1- bill_calculator calculates the bill for any load profile and tariff
+#  2- load_estimator estimates the load profile from demographic info and/or previous
+#  usages and/or historical load profile
+#  3- battery: estimates the net load for a load + PV + battery based on the tariff
+#  - if the tariff is flat rate, it is maximising the self consumption. i.e. always storing the excess PV in battery
+#  - if it is TOU, it is maximising the self consumption but also doesn't discharge the battery until peak time.
+#  4- Main function to call these.
 
-# ---------- Bill Calculator function -----------
+# -------------------- Bill Calculator function -----------
 
 
 def bill_calculator(load_profile, tariff):
-    # the input is load profile (half hourly) for one year and the tariff.
-    # First input should be timestamp and second should be kwh
+    # the input is load profile (kwh over half hourly) for one year and the tariff.
+    # First input (column) of load_profile should be timestamp and second should be kwh
     # load_profile.columns={'TS','kWh'}
 
     def fr_calc(load_profile, tariff):
@@ -25,16 +38,15 @@ def bill_calculator(load_profile, tariff):
         load_exp[load_exp > 0] = 0
         load_imp = load_profile['kWh'].copy()
         load_imp[load_imp < 0] = 0
-
         annual_kwh = load_imp.sum()
         annual_kwh_exp = -1 * load_exp.sum()
-
         num_of_days = len(load_profile['TS'].dt.normalize().unique())
-        daily_charge = num_of_days*tariff['Parameters']['Daily']['Value']
-        energy_charge = annual_kwh*tariff['Parameters']['Energy']['Value']*(1-tariff['Discount (%)']/100)
-        fit_rebate = annual_kwh_exp*tariff['Parameters']['FiT']['Value']
+        daily_charge = num_of_days * tariff['Parameters']['Daily']['Value']
+        energy_charge = annual_kwh * tariff['Parameters']['Energy']['Value'] * (1 - tariff['Discount (%)'] / 100)
+        fit_rebate = annual_kwh_exp * tariff['Parameters']['FiT']['Value']
         annual_bill = {'Annual_kWh': annual_kwh, 'Annual_kWh_Exp': annual_kwh_exp, 'Num_of_Days': num_of_days,
-                       'Daily_Charge': daily_charge, 'Energy_Charge with discount': energy_charge, 'FiT_Rebate': fit_rebate,
+                       'Daily_Charge': daily_charge, 'Energy_Charge with discount': energy_charge,
+                       'FiT_Rebate': fit_rebate,
                        'Total_Bill': energy_charge + daily_charge - fit_rebate}
         return annual_bill
 
@@ -70,37 +82,45 @@ def bill_calculator(load_profile, tariff):
                     if start_hour <= end_hour:
                         load_profile.time_ind = np.where((load_profile['TS'].dt.weekday < 5) &
                                                          (load_profile['TS'].dt.month.isin(this_part['Month'])) &
-                                                         (((60 * load_profile['TS'].dt.hour + load_profile['TS'].dt.minute)
+                                                         (((60 * load_profile['TS'].dt.hour + load_profile[
+                                                             'TS'].dt.minute)
                                                            >= (60 * start_hour + start_min)) &
-                                                          ((60 * load_profile['TS'].dt.hour + load_profile['TS'].dt.minute)
+                                                          ((60 * load_profile['TS'].dt.hour + load_profile[
+                                                              'TS'].dt.minute)
                                                            < (60 * end_hour + end_min))), ti, load_profile.time_ind)
                     else:
                         load_profile.time_ind = np.where((load_profile['TS'].dt.weekday < 5) &
                                                          (load_profile['TS'].dt.month.isin(this_part['Month'])) &
-                                                         (((60 * load_profile['TS'].dt.hour + load_profile['TS'].dt.minute)
+                                                         (((60 * load_profile['TS'].dt.hour + load_profile[
+                                                             'TS'].dt.minute)
                                                            >= (60 * start_hour + start_min)) |
-                                                          ((60 * load_profile['TS'].dt.hour + load_profile['TS'].dt.minute)
+                                                          ((60 * load_profile['TS'].dt.hour + load_profile[
+                                                              'TS'].dt.minute)
                                                            < (60 * end_hour + end_min))), ti, load_profile.time_ind)
                 if this_part['Weekend']:
                     if start_hour <= end_hour:
                         load_profile.time_ind = np.where((load_profile['TS'].dt.weekday >= 5) &
                                                          (load_profile['TS'].dt.month.isin(this_part['Month'])) &
-                                                         (((60 * load_profile['TS'].dt.hour + load_profile['TS'].dt.minute)
+                                                         (((60 * load_profile['TS'].dt.hour + load_profile[
+                                                             'TS'].dt.minute)
                                                            >= (60 * start_hour + start_min)) &
-                                                          ((60 * load_profile['TS'].dt.hour + load_profile['TS'].dt.minute)
+                                                          ((60 * load_profile['TS'].dt.hour + load_profile[
+                                                              'TS'].dt.minute)
                                                            < (60 * end_hour + end_min))), ti, load_profile.time_ind)
                     else:
                         load_profile.time_ind = np.where((load_profile['TS'].dt.weekday >= 5) &
                                                          (load_profile['TS'].dt.month.isin(this_part['Month'])) &
-                                                         (((60 * load_profile['TS'].dt.hour + load_profile['TS'].dt.minute)
+                                                         (((60 * load_profile['TS'].dt.hour + load_profile[
+                                                             'TS'].dt.minute)
                                                            >= (60 * start_hour + start_min)) |
-                                                          ((60 * load_profile['TS'].dt.hour + load_profile['TS'].dt.minute)
+                                                          ((60 * load_profile['TS'].dt.hour + load_profile[
+                                                              'TS'].dt.minute)
                                                            < (60 * end_hour + end_min))), ti, load_profile.time_ind)
             tou_energy_charge[k] = {'kWh': load_imp[load_profile.time_ind == ti].sum(),
-                                    'Charge': this_part['Value']*load_imp[load_profile.time_ind == ti].sum()}
+                                    'Charge': this_part['Value'] * load_imp[load_profile.time_ind == ti].sum()}
             all_tou_charge = all_tou_charge + tou_energy_charge[k]['Charge']
 
-        all_tou_charge = all_tou_charge*(1 - tariff['Discount (%)'] / 100)
+        all_tou_charge = all_tou_charge * (1 - tariff['Discount (%)'] / 100)
         fit_rebate = annual_kwh_exp * tariff['Parameters']['FiT']['Value']
         annual_bill = {'Annual_kWh': annual_kwh, 'Annual_kWh_Exp': annual_kwh_exp, 'Num_of_Days': num_of_days,
                        'Daily_Charge': daily_charge, 'FiT_Rebate': fit_rebate, 'Energy_Charge': tou_energy_charge,
@@ -108,7 +128,7 @@ def bill_calculator(load_profile, tariff):
                        'Total_Bill': all_tou_charge + daily_charge - fit_rebate}
         return annual_bill
 
-# Checking the type and run the appropriate function
+    # Checking the type and run the appropriate function
     if tariff['Type'] == 'Flat_rate':
         total_bill = fr_calc(load_profile, tariff)
     elif tariff['Type'] == 'TOU':
@@ -122,91 +142,92 @@ def bill_calculator(load_profile, tariff):
 def load_estimator(user_inputs, distributor, user_input_load_profile):
     # This function is for estimating load profile from provided info. The inputs could be:
     #  - Historical load profile
-    #  - Historical usage (read from bill)
+    #  - Historical usage (user reads from bill)
     #  - Demographic information
     # It can be a combination of above as well.
     # The output is half hourly load profile for a typical year (adjusted for temperature)
     #
-    DemogInfo = pd.DataFrame(0, index=[0], columns=['CONTROLLED_LOAD_CNT', 'DRYER_USAGE_CD', 'NUM_REFRIGERATORS',
-                                                    'NUM_ROOMS_HEATED', 'HAS_GAS_HEATING', 'HAS_GAS_HOT_WATER',
-                                                    'HAS_GAS_COOKING', 'HAS_POOLPUMP', 'NUM_OCCUPANTS', 'SemiDetached',
-                                                    'SeparateHouse', 'Unit', 'Ducted', 'NoAirCon', 'OtherAirCon',
-                                                    'SplitSystem'])
+    demog_info = pd.DataFrame(0, index=[0], columns=['CONTROLLED_LOAD_CNT', 'DRYER_USAGE_CD', 'NUM_REFRIGERATORS',
+                                                     'NUM_ROOMS_HEATED', 'HAS_GAS_HEATING', 'HAS_GAS_HOT_WATER',
+                                                     'HAS_GAS_COOKING', 'HAS_POOLPUMP', 'NUM_OCCUPANTS', 'SemiDetached',
+                                                     'SeparateHouse', 'Unit', 'Ducted', 'NoAirCon', 'OtherAirCon',
+                                                     'SplitSystem'])
 
-    DemogInfo['NUM_OCCUPANTS'] = user_inputs['family_size']
+    demog_info['NUM_OCCUPANTS'] = user_inputs['family_size']
 
     if user_inputs['poolpump'] == 'yes':
-        DemogInfo['HAS_POOLPUMP'] = 1
+        demog_info['HAS_POOLPUMP'] = 1
 
     if user_inputs['controlled_load'] == 'yes':
-        DemogInfo['CONTROLLED_LOAD_CNT'] = 1
+        demog_info['CONTROLLED_LOAD_CNT'] = 1
 
     if user_inputs['dryer_usage'] == 'high':
-        DemogInfo['DRYER_USAGE_CD'] = 3
+        demog_info['DRYER_USAGE_CD'] = 3
     elif user_inputs['dryer_usage'] == 'medium':
-        DemogInfo['DRYER_USAGE_CD'] = 2
+        demog_info['DRYER_USAGE_CD'] = 2
     elif user_inputs['dryer_usage'] == 'low':
-        DemogInfo['DRYER_USAGE_CD'] = 1
+        demog_info['DRYER_USAGE_CD'] = 1
     else:
-        DemogInfo['DRYER_USAGE_CD'] = 0
+        demog_info['DRYER_USAGE_CD'] = 0
 
     if user_inputs['AC_type'] == 'Split':
-        DemogInfo['SplitSystem'] = 1
+        demog_info['SplitSystem'] = 1
     elif user_inputs['AC_type'] == 'Ducted':
-        DemogInfo['Ducted'] = 1
+        demog_info['Ducted'] = 1
     elif user_inputs['AC_type'] == 'OtherAirCon':
-        DemogInfo['OtherAirCon'] = 1
+        demog_info['OtherAirCon'] = 1
     else:
-        DemogInfo['NoAirCon'] = 1
+        demog_info['NoAirCon'] = 1
 
     if user_inputs['dwell'] == 'SemiDetached':
-        DemogInfo['SemiDetached'] = 1
+        demog_info['SemiDetached'] = 1
     elif user_inputs['dwell'] == 'Unit':
-        DemogInfo['Unit'] = 1
+        demog_info['Unit'] = 1
     else:
-        DemogInfo['SeparateHouse'] = 1
+        demog_info['SeparateHouse'] = 1
 
     if user_inputs['HAS_GAS_HEATING'] == 'yes':
-        DemogInfo['HAS_GAS_HEATING'] = 1
+        demog_info['HAS_GAS_HEATING'] = 1
 
     if user_inputs['HAS_GAS_HOT_WATER'] == 'yes':
-        DemogInfo['HAS_GAS_HOT_WATER'] = 1
+        demog_info['HAS_GAS_HOT_WATER'] = 1
 
     if user_inputs['HAS_GAS_COOKING'] == 'yes':
-        DemogInfo['HAS_GAS_COOKING'] = 1
+        demog_info['HAS_GAS_COOKING'] = 1
 
-    DemogInfo['NUM_ROOMS_HEATED'] = user_inputs['NUM_ROOMS_HEATED']
+    demog_info['NUM_ROOMS_HEATED'] = user_inputs['NUM_ROOMS_HEATED']
 
-    DemogInfo['NUM_REFRIGERATORS'] = user_inputs['NUM_REFRIGERATORS']
+    demog_info['NUM_REFRIGERATORS'] = user_inputs['NUM_REFRIGERATORS']
 
     # Get the DegreeDays data for the particular location (It's currently in pickle file and it is 3mb.
     # We may want to move it to server and get only the data for desired location
 
     # Reading the whole RMY files and find the closest one to the user location
-    WeatherData_RMY_daily_all = pickle.load(open('AllWeather.pickle', 'rb'))
-    ListofWS = pd.read_csv('ermy_locations.csv')
-    indWS = ((ListofWS['Longitude'] - user_inputs['long']).abs() + (
-                ListofWS['Latitude'] - user_inputs['lat']).abs()).idxmin()
-    WeatherData_RMY_daily = WeatherData_RMY_daily_all[
-        WeatherData_RMY_daily_all['loc'] == ListofWS.loc[indWS, 'TLA'] + '_' + str(
-            ListofWS.loc[indWS, 'BOM_site'])].copy()
+    weather_data_rmy_daily_all = pickle.load(open('AllWeather.pickle', 'rb'))
+    list_of_ws = pd.read_csv('ermy_locations.csv')
+    ind_ws = ((list_of_ws['Longitude'] - user_inputs['long']).abs() + (
+            list_of_ws['Latitude'] - user_inputs['lat']).abs()).idxmin()
+    weather_data_rmy_daily = weather_data_rmy_daily_all[
+        weather_data_rmy_daily_all['loc'] == list_of_ws.loc[ind_ws, 'TLA'] + '_' + str(
+            list_of_ws.loc[ind_ws, 'BOM_site'])].copy()
 
     # Estimate the temperature dependency
     # load the trained models for estimating coefficients
     cwd = os.getcwd()
-    CDD_Coef = pickle.load(open(os.path.join(cwd, 'Models\CDD_Coef.pickle'), 'rb'))
-    HDD_Coef = pickle.load(open(os.path.join(cwd, 'Models\HDD_Coef.pickle'), 'rb'))
+    cdd_coef = pickle.load(open(os.path.join(cwd, 'Models\CDD_Coef.pickle'), 'rb'))
+    hdd_coef = pickle.load(open(os.path.join(cwd, 'Models\HDD_Coef.pickle'), 'rb'))
 
-    NewDF = pd.concat([pd.DataFrame({'Weekday': [1] * 24}), pd.concat([DemogInfo] * 24, ignore_index=True)], axis=1)
-    NewDF['Hour'] = range(0, 24)
-    NewDF2 = NewDF.copy()
-    NewDF2['Weekday'] = 0
-    NewDF = pd.concat([NewDF, NewDF2])
+    est_load_1 = pd.concat([pd.DataFrame({'Weekday': [1] * 24}), pd.concat([demog_info] * 24, ignore_index=True)],
+                           axis=1)
+    est_load_1['Hour'] = range(0, 24)
+    est_load_2 = est_load_1.copy()
+    est_load_2['Weekday'] = 0
+    est_load_1 = pd.concat([est_load_1, est_load_2])
 
-    NewDF['CDD_coef'] = CDD_Coef.predict(NewDF.values)
-    NewDF['HDD_coef'] = HDD_Coef.predict(NewDF.iloc[:, 0:-1].values)
-    NewDF['CDD_coef'].clip(lower=0, inplace=True)
-    NewDF['HDD_coef'].clip(lower=0, inplace=True)
+    est_load_1['cdd_coef'] = cdd_coef.predict(est_load_1.values)
+    est_load_1['hdd_coef'] = hdd_coef.predict(est_load_1.iloc[:, 0:-1].values)
+    est_load_1['cdd_coef'].clip(lower=0, inplace=True)
+    est_load_1['hdd_coef'].clip(lower=0, inplace=True)
 
     # If load profile is provided: (date and location should be known)
     if user_inputs['load_profile_provided'] == 'yes':
@@ -214,57 +235,72 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
         # Example: Load the example csv file and assume it is provided by user:
         # It should be kWh over half hourly periods. First column should be datetime and next one should be kWh
 
-        SampleLoad = user_input_load_profile.copy()
-        # todo: quality control of the load data
-        SampleLoad.rename(columns={SampleLoad.columns[0]:'READING_DATETIME',SampleLoad.columns[1]:'kWh'},inplace=True)
-        SampleLoad['READING_DATETIME'] = pd.to_datetime(SampleLoad['READING_DATETIME'])
-        SampleLoad['TS_N'] = SampleLoad['READING_DATETIME'].dt.normalize()
-        # 1- Temperature data of the same period of time should be grabbed
+        sample_load = user_input_load_profile.copy()
+        sample_load.rename(columns={sample_load.columns[0]: 'READING_DATETIME', sample_load.columns[1]: 'kWh'},
+                           inplace=True)
+        sample_load['READING_DATETIME'] = pd.to_datetime(sample_load['READING_DATETIME'], format='%d/%m/%Y %H:%M')
+        sample_load['TS_N'] = sample_load['READING_DATETIME'].dt.normalize()
 
-        StartDate = SampleLoad['READING_DATETIME'].min().strftime('%Y%m%d')
-        EndDate = SampleLoad['READING_DATETIME'].max().strftime('%Y%m%d')
+        # 1- Temperature data of the same period of time should be grabbed from NASA website
+        start_date = sample_load['READING_DATETIME'].min().strftime('%Y%m%d')
+        end_date = sample_load['READING_DATETIME'].max().strftime('%Y%m%d')
 
-        URL = 'https://power.larc.nasa.gov/cgi-bin/v1/DataAccess.py?request=execute&identifier=SinglePoint&parameters=CDD18_3,HDD18_3&startDate={}&endDate={}&userCommunity=SSE&tempAverage=DAILY&outputList=JSON,ASCII&lat={}&lon={}&user=anonymous'.format(
-            StartDate, EndDate, str(user_inputs['lat']), str(user_inputs['long']))
+        url = 'https://power.larc.nasa.gov/cgi-bin/v1/DataAccess.py?request=execute&identifier=' \
+              'SinglePoint&parameters=CDD18_3,HDD18_3&startDate={}&endDate={}&userCommunity=SSE&' \
+              'tempAverage=DAILY&outputList=JSON,ASCII&lat={}&lon={}&user=anonymous'.format(
+            start_date, end_date, str(user_inputs['lat']), str(user_inputs['long']))
 
-        LP = requests.get(URL)
-        LP = LP.json()
-        DH_Temp_WS = pd.DataFrame.from_dict(LP['features'][0]['properties']['parameter'],
+        temp_data = requests.get(url)
+        temp_data = temp_data.json()
+        dh_temp_ws = pd.DataFrame.from_dict(temp_data['features'][0]['properties']['parameter'],
                                             orient='columns').reset_index()
-        DH_Temp_WS.rename(columns={'index': 'TS', 'CDD18_3': 'CDD', 'HDD18_3': 'HDD'}, inplace=True)
+        dh_temp_ws.rename(columns={'index': 'TS', 'CDD18_3': 'CDD', 'HDD18_3': 'HDD'}, inplace=True)
 
         # Adjusting the HDD and CDD
-        DH_Temp_WS['CDD'].where(DH_Temp_WS['CDD'] > DH_Temp_WS['HDD'], 0, inplace=True)
-        DH_Temp_WS['HDD'].where(DH_Temp_WS['HDD'] > DH_Temp_WS['CDD'], 0, inplace=True)
+        dh_temp_ws['CDD'].where(dh_temp_ws['CDD'] > dh_temp_ws['HDD'], 0, inplace=True)
+        dh_temp_ws['HDD'].where(dh_temp_ws['HDD'] > dh_temp_ws['CDD'], 0, inplace=True)
 
-        DH_Temp_WS['TS'] = pd.to_datetime(DH_Temp_WS['TS'], format='%Y%m%d')
+        dh_temp_ws['TS'] = pd.to_datetime(dh_temp_ws['TS'], format='%Y%m%d')
         # Adding HDH and CDH to load profile
-        SampleLoad = SampleLoad.join(DH_Temp_WS.set_index(['TS']), on=['TS_N'])
-        SampleLoad['Hour'] = SampleLoad['READING_DATETIME'].dt.hour
-        SampleLoad['Weekday'] = ((SampleLoad['TS_N'].dt.dayofweek) // 5 == 0).astype(int)
+        sample_load = sample_load.join(dh_temp_ws.set_index(['TS']), on=['TS_N'])
+        sample_load['Hour'] = sample_load['READING_DATETIME'].dt.hour
+        sample_load['Weekday'] = (sample_load['TS_N'].dt.dayofweek // 5 == 0).astype(int)
 
-        SampleLoad = SampleLoad.join(NewDF.set_index(['Hour', 'Weekday']), on=['Hour', 'Weekday'])
-        SampleLoad['day'] = SampleLoad['TS_N'].dt.day
-        SampleLoad['month'] = SampleLoad['TS_N'].dt.month
+        sample_load = sample_load.join(est_load_1.set_index(['Hour', 'Weekday']), on=['Hour', 'Weekday'])
+        sample_load['day'] = sample_load['TS_N'].dt.day
+        sample_load['month'] = sample_load['TS_N'].dt.month
 
         # 3- Adjust the load profile to new temperature data (RMY)
 
-        SampleLoad = SampleLoad.join(WeatherData_RMY_daily.set_index(['day', 'month']), on=['day', 'month'],
-                                     rsuffix='_New')
-        SampleLoad['kWh_adj'] = SampleLoad['kWh'] + (SampleLoad['HDD_New'] - SampleLoad['HDD']) * SampleLoad[
-            'HDD_coef'] + (SampleLoad['CDD_New'] - SampleLoad['CDD']) * SampleLoad['CDD_coef']
+        sample_load = sample_load.join(weather_data_rmy_daily.set_index(['day', 'month']), on=['day', 'month'],
+                                       rsuffix='_New')
+        sample_load['kWh_adj'] = sample_load['kWh'] + (sample_load['HDD_New'] - sample_load['HDD']) * sample_load[
+            'hdd_coef'] + (sample_load['CDD_New'] - sample_load['CDD']) * sample_load['cdd_coef']
 
-        SampleLoad['kWh_adj'] = SampleLoad['kWh_adj'].clip(lower=0)
-        EstimatedLoad = SampleLoad[['READING_DATETIME', 'kWh_adj']].rename(
+        sample_load['kWh_adj'] = sample_load['kWh_adj'].clip(lower=0)
+        estimated_load = sample_load[['READING_DATETIME', 'kWh_adj']].rename(
             columns={'READING_DATETIME': 'TS', 'kWh_adj': 'kWh'})
+
+        # Adding kW field
+        time_res = round(
+            ((estimated_load['TS'] - estimated_load['TS'].shift(periods=1)) / np.timedelta64(1, 'm')).median())
+
+        if time_res == 30:
+            estimated_load['kW'] = 2 * estimated_load['kWh']
+        else:
+            estimated_load['kW'] = estimated_load['kWh']
+            estimated_load = estimated_load.set_index('TS')
+            estimated_load = estimated_load.resample('30min').bfill().copy()
+            estimated_load['kWh'] = estimated_load['kWh']/2  # as it is converted to half hourly
+            estimated_load.reset_index(inplace=True)
 
     # Todo: check the energy etc to be similar
 
     else:
 
-        # load the trained models for estimating underlying load
+        # if the load profile is not imported. load the trained models for estimating underlying load
         cwd = os.getcwd()
-        LoadModel = pickle.load(open(os.path.join(cwd, 'Models\TempCor.pickle'), 'rb'))
+        load_model = pickle.load(open(os.path.join(cwd, 'Models\TempCor.pickle'), 'rb'))
 
         # ['Hour', 'Weekday', 'Summer', 'Winter', 'Fall', 'Spring',
         #        'CONTROLLED_LOAD_CNT', 'DRYER_USAGE_CD', 'NUM_REFRIGERATORS',
@@ -273,81 +309,78 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
         #        'SeparateHouse', 'Unit', 'Ducted', 'NoAirCon', 'OtherAirCon',
         #        'SplitSystem']
 
-        NewDF_L = pd.DataFrame(data={'Hour': range(0, 24)})
-        NewDF_L['Weekday'] = 1
-        NewDF_L['Summer'] = 1
-        NewDF_L['Winter'] = 0
-        NewDF_L['Fall'] = 0
-        NewDF_L['Spring'] = 0
-        NewDF_L2 = pd.concat([DemogInfo] * 24).reset_index(drop=True)
-        # pd.concat([NewDF_L2,NewDF_L],axis=1)
-        NewDF_L3 = pd.concat([NewDF_L, NewDF_L2], axis=1)
-        NewDF_L4 = NewDF_L3.copy()
-        NewDF_L3['Weekday'] = 0
-        NewDF_L3 = pd.concat([NewDF_L4, NewDF_L3], axis=0)
+        est_load_3 = pd.DataFrame(data={'Hour': range(0, 24)})
+        est_load_3['Weekday'] = 1
+        est_load_3['Summer'] = 1
+        est_load_3['Winter'] = 0
+        est_load_3['Fall'] = 0
+        est_load_3['Spring'] = 0
+        est_load_4 = pd.concat([demog_info] * 24).reset_index(drop=True)
+        # pd.concat([est_load_4,est_load_3],axis=1)
+        est_load_5 = pd.concat([est_load_3, est_load_4], axis=1)
+        est_load_6 = est_load_5.copy()
+        est_load_5['Weekday'] = 0
+        est_load_5 = pd.concat([est_load_6, est_load_5], axis=0)
 
-        NewDF_L4 = NewDF_L3.copy()
+        est_load_6 = est_load_5.copy()
 
-        NewDF_L4['Summer'] = 0
-        NewDF_L4['Winter'] = 1
-        NewDF_L3 = pd.concat([NewDF_L3, NewDF_L4], axis=0)
+        est_load_6['Summer'] = 0
+        est_load_6['Winter'] = 1
+        est_load_5 = pd.concat([est_load_5, est_load_6], axis=0)
 
-        NewDF_L4['Winter'] = 0
-        NewDF_L4['Fall'] = 1
-        NewDF_L3 = pd.concat([NewDF_L3, NewDF_L4], axis=0)
+        est_load_6['Winter'] = 0
+        est_load_6['Fall'] = 1
+        est_load_5 = pd.concat([est_load_5, est_load_6], axis=0)
 
-        NewDF_L4['Fall'] = 0
-        NewDF_L4['Spring'] = 1
-        NewDF_L3 = pd.concat([NewDF_L3, NewDF_L4], axis=0).reset_index(drop=True)
+        est_load_6['Fall'] = 0
+        est_load_6['Spring'] = 1
+        est_load_5 = pd.concat([est_load_5, est_load_6], axis=0).reset_index(drop=True)
 
+        est_load_5['kWh_pred'] = load_model.predict(est_load_5.values)
 
-        NewDF_L3['kWh_pred'] = LoadModel.predict(NewDF_L3.values)
+        est_load_5 = est_load_5.join(
+            est_load_1[['Weekday', 'Hour', 'cdd_coef', 'hdd_coef']].set_index(['Hour', 'Weekday']),
+            on=['Hour', 'Weekday'])
 
-        NewDF_L3 = NewDF_L3.join(NewDF[['Weekday', 'Hour', 'CDD_coef', 'HDD_coef']].set_index(['Hour', 'Weekday']),
-                                 on=['Hour', 'Weekday'])
-        # Todo: important : check the kwh over 30 min or 1 hour.. in estimation it should be kW not kWh..
-        FullLoad = pd.DataFrame(pd.date_range(start='1/1/1990T01:00', end='1/1/1991', freq='H'), columns=['TS'])
-        # FullLoad.drop(columns={'ghi','dni','dhi','WS','HDH','CDH'},inplace=True)
+        full_load = pd.DataFrame(pd.date_range(start='1/1/1990T00:30', end='1/1/1991', freq='30min'), columns=['TS'])
+        # full_load.drop(columns={'ghi','dni','dhi','WS','HDH','CDH'},inplace=True)
+        # Note the load estimation training was based on half hourly kwh average.
+        # So the load should be half hourly as well. Otherwise the value should be doubled.
+        full_load['Summer'] = 1
+        full_load['Winter'] = 1
+        full_load['Fall'] = 1
+        full_load['Spring'] = 1
+        full_load['month'] = full_load['TS'].dt.month
+        full_load['day'] = full_load['TS'].dt.day
+        full_load['hour'] = full_load['TS'].dt.hour
 
-        FullLoad['Summer'] = 1
-        FullLoad['Winter'] = 1
-        FullLoad['Fall'] = 1
-        FullLoad['Spring'] = 1
-        FullLoad['month'] = FullLoad['TS'].dt.month
-        FullLoad['day'] = FullLoad['TS'].dt.day
-        FullLoad['hour'] = FullLoad['TS'].dt.hour
+        full_load['Summer'].where(full_load['month'].isin([12, 1, 2]), 0, inplace=True)
+        full_load['Winter'].where(full_load['month'].isin([6, 7, 8]), 0, inplace=True)
+        full_load['Fall'].where(full_load['month'].isin([3, 4, 5]), 0, inplace=True)
+        full_load['Spring'].where(full_load['month'].isin([9, 10, 11]), 0, inplace=True)
+        full_load['Weekday'] = (full_load['TS'].dt.dayofweek // 5 == 0).astype(int)
 
-        FullLoad['Summer'].where(FullLoad['month'].isin([12, 1, 2]), 0, inplace=True)
-        FullLoad['Winter'].where(FullLoad['month'].isin([6, 7, 8]), 0, inplace=True)
-        FullLoad['Fall'].where(FullLoad['month'].isin([3, 4, 5]), 0, inplace=True)
-        FullLoad['Spring'].where(FullLoad['month'].isin([9, 10, 11]), 0, inplace=True)
-        FullLoad['Weekday'] = ((FullLoad['TS'].dt.dayofweek) // 5 == 0).astype(int)
+        full_load = full_load.join(weather_data_rmy_daily.iloc[:, 1:].set_index(['day', 'month']), on=['day', 'month'])
 
-        FullLoad = FullLoad.join(WeatherData_RMY_daily.iloc[:, 1:].set_index(['day', 'month']), on=['day', 'month'])
+        full_load = full_load.join(est_load_5.set_index(['Hour', 'Weekday', 'Summer', 'Winter', 'Fall', 'Spring']),
+                                   on=['hour', 'Weekday', 'Summer', 'Winter', 'Fall', 'Spring'])
+        full_load['kWh_adj'] = full_load['kWh_pred'] + full_load['HDD'] * full_load['hdd_coef'] + full_load['CDD'] * \
+                                full_load['cdd_coef']
 
-        FullLoad = FullLoad.join(NewDF_L3.set_index(['Hour', 'Weekday', 'Summer', 'Winter', 'Fall', 'Spring']),
-                                 on=['hour', 'Weekday', 'Summer', 'Winter', 'Fall', 'Spring'])
-        FullLoad['kWh_adj'] = FullLoad['kWh_pred'] + FullLoad['HDD'] * FullLoad['HDD_coef'] + FullLoad['CDD'] * \
-                              FullLoad['CDD_coef']
+        estimated_load = full_load[['TS', 'kWh_adj']].rename(columns={'kWh_adj': 'kWh'})
 
-        EstimatedLoad = FullLoad[['TS', 'kWh_adj']].rename(columns={'kWh_adj': 'kWh'})
-
-        # # if Usage provided: all usage or peak/offpeak/shoulder
+        # if Usage provided: all usage or peak/offpeak/shoulder
         if len(user_inputs['previous_usage']) > 0:
 
-            # todo: create a list of DNSPs TOU times and use here
-
             if user_inputs['smart_meter'] == 'yes':
-
-                Distributor = distributor
                 with open('AllTOU.json') as f:
-                    AllTOU = json.load(f)
-                for i in range(len(AllTOU)):
-                    if AllTOU[i]['Distributor'] == Distributor:
-                        TOUTimes = AllTOU[i]
+                    all_tou = json.load(f)
+                for i in range(len(all_tou)):
+                    if all_tou[i]['Distributor'] == distributor:
+                        tou_times = all_tou[i]
 
-                FullLoad['TOU'] = 'N/A'
-                for k1, v1 in TOUTimes['TOU'].items():
+                full_load['TOU'] = 'N/A'
+                for k1, v1 in tou_times['TOU'].items():
                     for k, v in v1.items():
                         this_part = v.copy()
                         for k2, v2, in this_part['TimeIntervals'].items():
@@ -361,164 +394,165 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
                             end_min = int(v2[1][3:5])
                             if this_part['Weekday']:
                                 if start_hour <= end_hour:
-                                    FullLoad.loc[(FullLoad['TS'].dt.weekday < 5) &
-                                                 (FullLoad['TS'].dt.month.isin(this_part['Month'])) &
-                                                 (((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                                   >= (60 * start_hour + start_min)) &
-                                                  ((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                                   < (60 * end_hour + end_min))), 'TOU'] = k1
+                                    full_load.loc[(full_load['TS'].dt.weekday < 5) &
+                                                  (full_load['TS'].dt.month.isin(this_part['Month'])) &
+                                                  (((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                                    >= (60 * start_hour + start_min)) &
+                                                   ((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                                    < (60 * end_hour + end_min))), 'TOU'] = k1
                                 else:
-                                    FullLoad.loc[(FullLoad['TS'].dt.weekday < 5) &
-                                                 (FullLoad['TS'].dt.month.isin(this_part['Month'])) &
-                                                 (((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                                   >= (60 * start_hour + start_min)) |
-                                                  ((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                                   < (60 * end_hour + end_min))), 'TOU'] = k1
+                                    full_load.loc[(full_load['TS'].dt.weekday < 5) &
+                                                  (full_load['TS'].dt.month.isin(this_part['Month'])) &
+                                                  (((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                                    >= (60 * start_hour + start_min)) |
+                                                   ((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                                    < (60 * end_hour + end_min))), 'TOU'] = k1
                             if this_part['Weekend']:
                                 if start_hour <= end_hour:
-                                    FullLoad.loc[(FullLoad['TS'].dt.weekday >= 5) &
-                                                 (FullLoad['TS'].dt.month.isin(this_part['Month'])) &
-                                                 (((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                                   >= (60 * start_hour + start_min)) &
-                                                  ((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                                   < (60 * end_hour + end_min))), 'TOU'] = k1
+                                    full_load.loc[(full_load['TS'].dt.weekday >= 5) &
+                                                  (full_load['TS'].dt.month.isin(this_part['Month'])) &
+                                                  (((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                                    >= (60 * start_hour + start_min)) &
+                                                   ((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                                    < (60 * end_hour + end_min))), 'TOU'] = k1
                                 else:
-                                    FullLoad.loc[(FullLoad['TS'].dt.weekday >= 5) &
-                                                 (FullLoad['TS'].dt.month.isin(this_part['Month'])) &
-                                                 (((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                                   >= (60 * start_hour + start_min)) |
-                                                  ((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                                   < (60 * end_hour + end_min))), 'TOU'] = k1
+                                    full_load.loc[(full_load['TS'].dt.weekday >= 5) &
+                                                  (full_load['TS'].dt.month.isin(this_part['Month'])) &
+                                                  (((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                                    >= (60 * start_hour + start_min)) |
+                                                   ((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                                    < (60 * end_hour + end_min))), 'TOU'] = k1
 
             else:
-                FullLoad['TOU'] = 'Total'
+                full_load['TOU'] = 'Total'
 
             kb = 1
-            UsageInfo = pd.DataFrame()
+            usage_info = pd.DataFrame()
             for k3, v3 in user_inputs['previous_usage'].items():
                 # start_day=min(pd.to_datetime(v3['start_date']),start_day)
                 # end_day = max(pd.to_datetime(v3['end_date']), end_day)
 
-                UsageInfo1 = pd.DataFrame({'TS': pd.date_range(start=v3['start_date'], end=v3['end_date'])})
-                UsageInfo1['Peak'] = v3['peak']
-                UsageInfo1['OffPeak'] = v3['offpeak']
-                UsageInfo1['Shoulder'] = v3['shoulder']
-                UsageInfo1['Total'] = v3['total']
-                UsageInfo1['BillNo'] = kb
+                usage_info_1 = pd.DataFrame({'TS': pd.date_range(start=v3['start_date'], end=v3['end_date'])})
+                usage_info_1['Peak'] = v3['peak']
+                usage_info_1['OffPeak'] = v3['offpeak']
+                usage_info_1['Shoulder'] = v3['shoulder']
+                usage_info_1['Total'] = v3['total']
+                usage_info_1['BillNo'] = kb
                 kb += 1
-                UsageInfo = pd.concat([UsageInfo, UsageInfo1], axis=0)
+                usage_info = pd.concat([usage_info, usage_info_1], axis=0)
 
-            StartDate = UsageInfo['TS'].min().strftime('%Y%m%d')
-            EndDate = UsageInfo['TS'].max().strftime('%Y%m%d')
+            start_date = usage_info['TS'].min().strftime('%Y%m%d')
+            end_date = usage_info['TS'].max().strftime('%Y%m%d')
 
-            URL = 'https://power.larc.nasa.gov/cgi-bin/v1/DataAccess.py?request=execute&identifier=SinglePoint&parameters=CDD18_3,HDD18_3&startDate={}&endDate={}&userCommunity=SSE&tempAverage=DAILY&outputList=JSON,ASCII&lat={}&lon={}&user=anonymous'.format(
-                StartDate, EndDate, str(user_inputs['lat']), str(user_inputs['long']))
+            url = 'https://power.larc.nasa.gov/cgi-bin/v1/DataAccess.py?request=execute&identifier=' \
+                  'SinglePoint&parameters=CDD18_3,HDD18_3&startDate={}&endDate={}&userCommunity=SSE&' \
+                  'tempAverage=DAILY&outputList=JSON,ASCII&lat={}&lon={}&user=anonymous'.format(
+                start_date, end_date, str(user_inputs['lat']), str(user_inputs['long']))
 
-            LP = requests.get(URL)
-            LP = LP.json()
-            DH_Temp_WS = pd.DataFrame.from_dict(LP['features'][0]['properties']['parameter'],
+            temp_data = requests.get(url)
+            temp_data = temp_data.json()
+            dh_temp_ws = pd.DataFrame.from_dict(temp_data['features'][0]['properties']['parameter'],
                                                 orient='columns').reset_index()
-            DH_Temp_WS.rename(columns={'index': 'TS', 'CDD18_3': 'CDD', 'HDD18_3': 'HDD'}, inplace=True)
+            dh_temp_ws.rename(columns={'index': 'TS', 'CDD18_3': 'CDD', 'HDD18_3': 'HDD'}, inplace=True)
 
-            # WeatherData_sel = WeatherData[WeatherData['TS'].dt.normalize().isin(UsageInfo['TS'])].copy()
-            DH_Temp_WS['CDD'].where(DH_Temp_WS['CDD'] > DH_Temp_WS['HDD'], 0, inplace=True)
-            DH_Temp_WS['HDD'].where(DH_Temp_WS['HDD'] > DH_Temp_WS['CDD'], 0, inplace=True)
+            # WeatherData_sel = WeatherData[WeatherData['TS'].dt.normalize().isin(usage_info['TS'])].copy()
+            dh_temp_ws['CDD'].where(dh_temp_ws['CDD'] > dh_temp_ws['HDD'], 0, inplace=True)
+            dh_temp_ws['HDD'].where(dh_temp_ws['HDD'] > dh_temp_ws['CDD'], 0, inplace=True)
 
-            DH_Temp_WS['TS'] = pd.to_datetime(DH_Temp_WS['TS'], format='%Y%m%d')
+            dh_temp_ws['TS'] = pd.to_datetime(dh_temp_ws['TS'], format='%Y%m%d')
 
-            # # todo: check if the 30min or hourly temp for calculating CDH and HDH in training and estimation..
-            # #also load half and hourly ..
 
-            DH_Temp_WS['month'] = DH_Temp_WS['TS'].dt.month
-            DH_Temp_WS['day'] = DH_Temp_WS['TS'].dt.day
+            dh_temp_ws['month'] = dh_temp_ws['TS'].dt.month
+            dh_temp_ws['day'] = dh_temp_ws['TS'].dt.day
 
-            UsageInfo = UsageInfo.join(DH_Temp_WS.set_index(['TS']), on=['TS'])
+            usage_info = usage_info.join(dh_temp_ws.set_index(['TS']), on=['TS'])
 
             if user_inputs['smart_meter'] == 'yes':
-                UsageInfo2 = pd.melt(UsageInfo, id_vars=['TS', 'BillNo', 'CDD', 'HDD', 'month', 'day'],
-                                     value_vars=['Peak', 'OffPeak', 'Shoulder'], var_name='TOU', value_name='kWh_usage')
+                usage_info_2 = pd.melt(usage_info, id_vars=['TS', 'BillNo', 'CDD', 'HDD', 'month', 'day'],
+                                       value_vars=['Peak', 'OffPeak', 'Shoulder'], var_name='TOU',
+                                       value_name='kWh_usage')
             else:
-                UsageInfo2 = pd.melt(UsageInfo, id_vars=['TS', 'BillNo', 'CDD', 'HDD', 'month', 'day'],
-                                     value_vars=['Total'], var_name='TOU', value_name='kWh_usage')
+                usage_info_2 = pd.melt(usage_info, id_vars=['TS', 'BillNo', 'CDD', 'HDD', 'month', 'day'],
+                                       value_vars=['Total'], var_name='TOU', value_name='kWh_usage')
 
-            FullLoad2 = FullLoad.join(UsageInfo2.set_index(['month', 'day', 'TOU']), on=['month', 'day', 'TOU'],
-                                      rsuffix='_new')
-            #
-            FullLoad2['kWh_adj_new'] = FullLoad2['kWh_pred'] + FullLoad2['HDD_new'] * FullLoad2['HDD_coef'] + FullLoad2[
-                'CDD_new'] * FullLoad2['CDD_coef']
-            FullLoad2['kWh_usage'] = FullLoad2['kWh_usage'].astype(float)
+            full_load_2 = full_load.join(usage_info_2.set_index(['month', 'day', 'TOU']), on=['month', 'day', 'TOU'],
+                                         rsuffix='_new')
 
-            Scaling = FullLoad2[['BillNo', 'TOU', 'kWh_usage', 'kWh_adj_new']].groupby(['BillNo', 'TOU'],
-                                                                                       as_index=False).agg(
+            full_load_2['kWh_adj_new'] = full_load_2['kWh_pred'] + full_load_2['HDD_new'] * full_load_2['hdd_coef'] + \
+                                         full_load_2['CDD_new'] * full_load_2['cdd_coef']
+            full_load_2['kWh_usage'] = full_load_2['kWh_usage'].astype(float)
+
+            scaling = full_load_2[['BillNo', 'TOU', 'kWh_usage', 'kWh_adj_new']].groupby(['BillNo', 'TOU'],
+                                                                                         as_index=False).agg(
                 {'kWh_adj_new': 'sum', 'kWh_usage': 'mean'})
-            Scaling['Scale'] = Scaling['kWh_usage'] / Scaling['kWh_adj_new']
-            Scaling2 = Scaling.groupby(['TOU'], as_index=False).agg({'Scale': 'mean'})
-            Scaling2['BillNo'] = 'nan'
-            Scaling2['BillNo'] = Scaling2['BillNo'].astype(float)
-            Scaling_final = pd.concat([Scaling2, Scaling[['TOU', 'BillNo', 'Scale']]], sort=False)
-            FullLoad2 = FullLoad2.join(Scaling_final.set_index(['TOU', 'BillNo']), on=['TOU', 'BillNo'])
+            scaling['Scale'] = scaling['kWh_usage'] / scaling['kWh_adj_new']
+            scaling_2 = scaling.groupby(['TOU'], as_index=False).agg({'Scale': 'mean'})
+            scaling_2['BillNo'] = 'nan'
+            scaling_2['BillNo'] = scaling_2['BillNo'].astype(float)
+            scaling_final = pd.concat([scaling_2, scaling[['TOU', 'BillNo', 'Scale']]], sort=False)
+            full_load_2 = full_load_2.join(scaling_final.set_index(['TOU', 'BillNo']), on=['TOU', 'BillNo'])
 
-            FullLoad2['kWh_adj_final'] = FullLoad2['kWh_adj'] * FullLoad2['Scale']
-            EstimatedLoad = FullLoad2[['TS', 'kWh_adj_final']].rename(
+            full_load_2['kWh_adj_final'] = full_load_2['kWh_adj'] * full_load_2['Scale']
+            estimated_load = full_load_2[['TS', 'kWh_adj_final']].rename(
                 columns={'kWh_adj_final': 'kWh'})
 
-    load_profile = EstimatedLoad.copy()
+    load_profile = estimated_load.copy()
 
     load_profile['TS'] = load_profile['TS'].apply(lambda dt: dt.replace(year=1990))
-    load_profile=load_profile.sort_values('TS')
+    load_profile = load_profile.sort_values('TS')
+    load_profile['kW'] = 2*load_profile['kWh']
+
     return load_profile
 
 
-def battery(tariff, profiles_B, battery_kW, battery_kWh, distributor):
+def battery(tariff, profiles_b, battery_kw, battery_kwh, distributor):
+    # BattPow = 5  # 5KW
+    # BattCap = 5  # 5kWh
 
-     # BattPow = 5  # 5KW
-     # BattCap = 5  # 5kWh
-
-    BattEff = 0.85
-    delT = 2  # number of timestamps in each hour
+    battery_eff = 0.85
+    del_t = 2  # number of timestamps in each hour
 
     if tariff['Type'] == 'Flat_rate':
 
-        Profiles_FR = profiles_B.copy()
-        Profiles_FR['SOC'] = 0
-        Profiles_FR['ExcessPV'] = Profiles_FR['PV'] - Profiles_FR['Load']
-        Profiles_FR['ExcessLoad'] = Profiles_FR['Load'] - Profiles_FR['PV']
-        Profiles_FR['ExcessPV'].clip(lower=0, upper=battery_kW, inplace=True)
-        Profiles_FR['ExcessLoad'].clip(lower=0, upper=battery_kW, inplace=True)
+        profiles_fr = profiles_b.copy()
+        profiles_fr['SOC'] = 0
+        profiles_fr['ExcessPV'] = profiles_fr['PV'] - profiles_fr['Load']
+        profiles_fr['ExcessLoad'] = profiles_fr['Load'] - profiles_fr['PV']
+        profiles_fr['ExcessPV'].clip(lower=0, upper=battery_kw, inplace=True)
+        profiles_fr['ExcessLoad'].clip(lower=0, upper=battery_kw, inplace=True)
 
-        for i in range(1, len(Profiles_FR)):
-            Profiles_FR.loc[i, 'SOC'] = max(0, min(battery_kWh,
-                                                   Profiles_FR.loc[i - 1, 'SOC'] + (BattEff ** 0.5) * Profiles_FR.loc[
-                                                       i, 'ExcessPV'] / delT - Profiles_FR.loc[i, 'ExcessLoad'] / (
-                                                               BattEff ** 0.5) / delT))
-            Profiles_FR.loc[i, 'ExcessCharge'] = Profiles_FR.loc[i, 'SOC'] - Profiles_FR.loc[i - 1, 'SOC']
+        for i in range(1, len(profiles_fr)):
+            profiles_fr.loc[i, 'SOC'] = max(0, min(battery_kwh, profiles_fr.loc[i - 1, 'SOC'] +
+                                                   (battery_eff ** 0.5) * profiles_fr.loc[i, 'ExcessPV'] / del_t -
+                                                   profiles_fr.loc[i, 'ExcessLoad'] / (
+                                                           battery_eff ** 0.5) / del_t))
+            profiles_fr.loc[i, 'ExcessCharge'] = profiles_fr.loc[i, 'SOC'] - profiles_fr.loc[i - 1, 'SOC']
 
-        Profiles_FR['ExcessCharge'] = Profiles_FR['ExcessCharge'].apply(
-            lambda x: x * (BattEff ** 0.5) if x < 0 else x / (BattEff ** 0.5))
+        profiles_fr['ExcessCharge'] = profiles_fr['ExcessCharge'].apply(
+            lambda x: x * (battery_eff ** 0.5) if x < 0 else x / (battery_eff ** 0.5))
 
-        Profiles_FR['NetLoad'] = Profiles_FR['Load'] - Profiles_FR['PV'] + Profiles_FR['ExcessCharge'] * delT
-        Profiles_B=Profiles_FR.copy()
+        profiles_fr['NetLoad'] = profiles_fr['Load'] - profiles_fr['PV'] + profiles_fr['ExcessCharge'] * del_t
+        profiles_b = profiles_fr.copy()
 
     elif tariff['Type'] == 'TOU':
 
-        Profiles_TOU = profiles_B.copy()
-        Profiles_TOU['SOC'] = 0
-        Profiles_TOU['ExcessPV'] = Profiles_TOU['PV'] - Profiles_TOU['Load']
-        Profiles_TOU['ExcessLoad'] = Profiles_TOU['Load'] - Profiles_TOU['PV']
-        Profiles_TOU['ExcessPV'].clip(lower=0, upper=battery_kW, inplace=True)
-        Profiles_TOU['ExcessLoad'].clip(lower=0, upper=battery_kW, inplace=True)
+        profiles_tou = profiles_b.copy()
+        profiles_tou['SOC'] = 0
+        profiles_tou['ExcessPV'] = profiles_tou['PV'] - profiles_tou['Load']
+        profiles_tou['ExcessLoad'] = profiles_tou['Load'] - profiles_tou['PV']
+        profiles_tou['ExcessPV'].clip(lower=0, upper=battery_kw, inplace=True)
+        profiles_tou['ExcessLoad'].clip(lower=0, upper=battery_kw, inplace=True)
 
-        FullLoad = Profiles_TOU.copy()
+        full_load = profiles_tou.copy()
 
-        Distributor = distributor
         with open('AllTOU.json') as f:
-            AllTOU = json.load(f)
-        for i in range(len(AllTOU)):
-            if AllTOU[i]['Distributor'] == Distributor:
-                TOUTimes = AllTOU[i]
+            all_tou = json.load(f)
+        for i in range(len(all_tou)):
+            if all_tou[i]['Distributor'] == distributor:
+                tou_times = all_tou[i]
 
-        FullLoad['TOU'] = 'N/A'
-        for k1, v1 in TOUTimes['TOU'].items():
+        full_load['TOU'] = 'N/A'
+        for k1, v1 in tou_times['TOU'].items():
             for k, v in v1.items():
                 this_part = v.copy()
                 for k2, v2, in this_part['TimeIntervals'].items():
@@ -532,138 +566,147 @@ def battery(tariff, profiles_B, battery_kW, battery_kWh, distributor):
                     end_min = int(v2[1][3:5])
                     if this_part['Weekday']:
                         if start_hour <= end_hour:
-                            FullLoad.loc[(FullLoad['TS'].dt.weekday < 5) &
-                                         (FullLoad['TS'].dt.month.isin(this_part['Month'])) &
-                                         (((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                           >= (60 * start_hour + start_min)) &
-                                          ((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                           < (60 * end_hour + end_min))), 'TOU'] = k1
+                            full_load.loc[(full_load['TS'].dt.weekday < 5) &
+                                          (full_load['TS'].dt.month.isin(this_part['Month'])) &
+                                          (((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                            >= (60 * start_hour + start_min)) &
+                                           ((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                            < (60 * end_hour + end_min))), 'TOU'] = k1
                         else:
-                            FullLoad.loc[(FullLoad['TS'].dt.weekday < 5) &
-                                         (FullLoad['TS'].dt.month.isin(this_part['Month'])) &
-                                         (((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                           >= (60 * start_hour + start_min)) |
-                                          ((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                           < (60 * end_hour + end_min))), 'TOU'] = k1
+                            full_load.loc[(full_load['TS'].dt.weekday < 5) &
+                                          (full_load['TS'].dt.month.isin(this_part['Month'])) &
+                                          (((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                            >= (60 * start_hour + start_min)) |
+                                           ((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                            < (60 * end_hour + end_min))), 'TOU'] = k1
                     if this_part['Weekend']:
                         if start_hour <= end_hour:
-                            FullLoad.loc[(FullLoad['TS'].dt.weekday >= 5) &
-                                         (FullLoad['TS'].dt.month.isin(this_part['Month'])) &
-                                         (((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                           >= (60 * start_hour + start_min)) &
-                                          ((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                           < (60 * end_hour + end_min))), 'TOU'] = k1
+                            full_load.loc[(full_load['TS'].dt.weekday >= 5) &
+                                          (full_load['TS'].dt.month.isin(this_part['Month'])) &
+                                          (((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                            >= (60 * start_hour + start_min)) &
+                                           ((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                            < (60 * end_hour + end_min))), 'TOU'] = k1
                         else:
-                            FullLoad.loc[(FullLoad['TS'].dt.weekday >= 5) &
-                                         (FullLoad['TS'].dt.month.isin(this_part['Month'])) &
-                                         (((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                           >= (60 * start_hour + start_min)) |
-                                          ((60 * FullLoad['TS'].dt.hour + FullLoad['TS'].dt.minute)
-                                           < (60 * end_hour + end_min))), 'TOU'] = k1
+                            full_load.loc[(full_load['TS'].dt.weekday >= 5) &
+                                          (full_load['TS'].dt.month.isin(this_part['Month'])) &
+                                          (((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                            >= (60 * start_hour + start_min)) |
+                                           ((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
+                                            < (60 * end_hour + end_min))), 'TOU'] = k1
 
-        Profiles_TOU = FullLoad.copy()
-        Profiles_TOU.loc[Profiles_TOU['TOU'] == 'OffPeak', 'ExcessLoad'] = 0
-        Profiles_TOU.loc[Profiles_TOU['TOU'] == 'Shoulder', 'ExcessLoad'] = 0
+        profiles_tou = full_load.copy()
+        profiles_tou.loc[profiles_tou['TOU'] == 'OffPeak', 'ExcessLoad'] = 0
+        profiles_tou.loc[profiles_tou['TOU'] == 'Shoulder', 'ExcessLoad'] = 0
 
-        for i in range(1, len(Profiles_TOU)):
-            Profiles_TOU.loc[i, 'SOC'] = max(0, min(battery_kWh, Profiles_TOU.loc[i - 1, 'SOC'] + (BattEff ** 0.5) *
-                                                    Profiles_TOU.loc[i, 'ExcessPV'] / delT - Profiles_TOU.loc[
-                                                        i, 'ExcessLoad'] / (BattEff ** 0.5) / delT))
-            Profiles_TOU.loc[i, 'ExcessCharge'] = Profiles_TOU.loc[i, 'SOC'] - Profiles_TOU.loc[i - 1, 'SOC']
+        for i in range(1, len(profiles_tou)):
+            profiles_tou.loc[i, 'SOC'] = max(0, min(battery_kwh, profiles_tou.loc[i - 1, 'SOC'] + (battery_eff ** 0.5) *
+                                                    profiles_tou.loc[i, 'ExcessPV'] / del_t - profiles_tou.loc[
+                                                        i, 'ExcessLoad'] / (battery_eff ** 0.5) / del_t))
+            profiles_tou.loc[i, 'ExcessCharge'] = profiles_tou.loc[i, 'SOC'] - profiles_tou.loc[i - 1, 'SOC']
 
-        Profiles_TOU['ExcessCharge'] = Profiles_TOU['ExcessCharge'].apply(
-            lambda x: x * (BattEff ** 0.5) if x < 0 else x / (BattEff ** 0.5))
+        profiles_tou['ExcessCharge'] = profiles_tou['ExcessCharge'].apply(
+            lambda x: x * (battery_eff ** 0.5) if x < 0 else x / (battery_eff ** 0.5))
 
-        Profiles_TOU['NetLoad'] = Profiles_TOU['Load'] - Profiles_TOU['PV'] + Profiles_TOU['ExcessCharge'] * delT
-        Profiles_B=Profiles_TOU.copy()
-    return Profiles_B
+        profiles_tou['NetLoad'] = profiles_tou['Load'] - profiles_tou['PV'] + profiles_tou['ExcessCharge'] * del_t
+        profiles_b = profiles_tou.copy()
+    return profiles_b
+
 
 # ---------- Main Function -----------
 
 
-def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kW, battery_kWh, distributor,
-               user_input_load_profile=None):
-
+def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw, battery_kwh, distributor,
+               user_input_load_profile):
     # First the load profile is estimated using the user input data
     load_profile = load_estimator(user_inputs, distributor, user_input_load_profile)
-    load_profile=load_profile.set_index('TS')
-    load_profile = load_profile.resample('30min').bfill().copy()
-    load_profile.reset_index(inplace=True)
+
+    load_profile = load_profile.sort_values('TS')
     # and the bill should be calculated using the load profile
     old_bill = bill_calculator(load_profile, selected_tariff)
+
+    # Now create a new load using the PV profile
     net_load = load_profile.copy()
     pv_profile['TS'] = pv_profile['TS'].apply(lambda dt: dt.replace(year=1990))
     pv_profile = pv_profile.sort_values('TS')
     pv_profile = pv_profile.set_index('TS')
     pv_profile = pv_profile.resample('30min').bfill().copy()
+    pv_profile['PV'] = pv_profile['PV']/2 # converting kw to kwh
     pv_profile.reset_index(inplace=True)
+
     # Check and convert both load and PV profiles to half hourly
-    net_load['kWh'] = net_load['kWh']- pv_profile['PV']
+    net_load['kWh'] = net_load['kWh'] - pv_profile['PV']
     new_bill = bill_calculator(net_load, selected_tariff)
-    PVGen=pv_profile.PV.sum()
-    Total_saving_SolarOnly = old_bill['Total_Bill'] - new_bill['Total_Bill']
-    Saving_DueToNotUsingGrid_SolarOnly = Total_saving_SolarOnly - new_bill['FiT_Rebate'] # Savings due to consuming PV energy instead of grid
+    pv_generation = pv_profile.PV.sum()
+    total_saving_solar_only = old_bill['Total_Bill'] - new_bill['Total_Bill']
+    saving_due_to_not_using_grid_solar_only = total_saving_solar_only - new_bill['FiT_Rebate']
+    # Savings due to consuming PV energy instead of grid
 
     # Seasonal Pattern (1: Summer, 2: fall, 3: winter, 4: spring)
-    LSP = load_profile[['TS', 'kWh']].copy()
-    LSP['kWh'] = LSP['kWh'] * 2  # convert to kW
-    LSP['hour'] = LSP['TS'].dt.hour
-    LSP['season'] = (LSP['TS'].dt.month % 12 + 3) // 3
-    LSP.drop(['TS'], inplace=True, axis=1)
-    LSP = LSP.groupby(['season', 'hour'], as_index=False).mean()
-    LSP_json = LSP.to_json(orient='values')
-    PVSP = pv_profile[['TS', 'PV']].copy()
-    PVSP['PV']=PVSP['PV']*2   # convert to kW
-    PVSP['hour'] = PVSP['TS'].dt.hour
-    PVSP['season'] = (PVSP['TS'].dt.month % 12 + 3) // 3
-    PVSP.drop(['TS'], inplace=True, axis=1)
-    PVSP =PVSP.groupby(['season', 'hour'], as_index=False).mean()
-    PVSP_json = PVSP.to_json(orient='values')
+    load_seasonal_pattern = load_profile[['TS', 'kWh']].copy()
+    load_seasonal_pattern['kWh'] = load_seasonal_pattern['kWh'] * 2  # convert to kW
+    load_seasonal_pattern['hour'] = load_seasonal_pattern['TS'].dt.hour
+    load_seasonal_pattern['season'] = (load_seasonal_pattern['TS'].dt.month % 12 + 3) // 3
+    load_seasonal_pattern.drop(['TS'], inplace=True, axis=1)
+    load_seasonal_pattern = load_seasonal_pattern.groupby(['season', 'hour'], as_index=False).mean()
+    load_seasonal_pattern_json = load_seasonal_pattern.to_json(orient='values')
+
+    pv_seasonal_pattern = pv_profile[['TS', 'PV']].copy()
+    pv_seasonal_pattern['PV'] = pv_seasonal_pattern['PV'] * 2  # convert to kW
+    pv_seasonal_pattern['hour'] = pv_seasonal_pattern['TS'].dt.hour
+    pv_seasonal_pattern['season'] = (pv_seasonal_pattern['TS'].dt.month % 12 + 3) // 3
+    pv_seasonal_pattern.drop(['TS'], inplace=True, axis=1)
+    pv_seasonal_pattern = pv_seasonal_pattern.groupby(['season', 'hour'], as_index=False).mean()
+    pv_seasonal_pattern_json = pv_seasonal_pattern.to_json(orient='values')
 
     # might remove LP from here and also the results
-    LP_json=load_profile.to_json(orient='values')
-    Results = {'Annual_PV_Generation': PVGen, 'Annual_PV_Generation_per_kW': PVGen / pv_size_kw,
-               'Est_Annual_PV_export_SolarOnly': new_bill['Annual_kWh_Exp'],
-               'Saving_due_to_not_using_grid_SolarOnly':
-                   Saving_DueToNotUsingGrid_SolarOnly, 'FiT_Payment_SolarOnly': new_bill['FiT_Rebate'],
-               'Annual_Saving_SolarOnly': Total_saving_SolarOnly,
-               'Load_seasonal_pattern_kW': LSP_json, 'PV_seasonal_pattern_kW': PVSP_json,
-               "Old_Bill": old_bill['Total_Bill'], "New_Bill_SolarOnly": new_bill['Total_Bill'],
-               'Load_Prof': LP_json}
+    load_profile_json = load_profile.to_json(orient='values')
 
-    # LoadProf = pd.read_json(LP_json)
+    results = {'Annual_PV_Generation': pv_generation, 'Annual_PV_Generation_per_kW': pv_generation / pv_size_kw,
+               'Est_Annual_PV_export_SolarOnly': new_bill['Annual_kWh_Exp'],
+               'Est_Annual_PV_self_consumption_SolarOnly': pv_generation-new_bill['Annual_kWh_Exp'],
+               'Saving_due_to_not_using_grid_SolarOnly': saving_due_to_not_using_grid_solar_only,
+               'FiT_Payment_SolarOnly': new_bill['FiT_Rebate'],
+               'Annual_Saving_SolarOnly': total_saving_solar_only,
+               'Load_seasonal_pattern_kW': load_seasonal_pattern_json,
+               'PV_seasonal_pattern_kW': pv_seasonal_pattern_json,
+               "Old_Bill": old_bill['Total_Bill'], "New_Bill_SolarOnly": new_bill['Total_Bill'],
+               'Load_Prof': load_profile_json}
+
+    # LoadProf = pd.read_json(load_profile_json)
     # LoadProf[0]=pd.to_datetime(LoadProf[0],unit='ms')
 
     # Battery Analysis
     # We assume if the tariff is flat rate, the battery is maximising self consumption
     # If the tariff is TOU, the battery doesn't let you discharge at off-peak and shoulder times.
 
-    if battery_kWh>0:
-        profiles_B = pv_profile.copy()
-        profiles_B['PV'] = profiles_B['PV'] * 2  # convert to kW
-        profiles_B['Load'] = load_profile['kWh'] * 2  # convert to kW
-        BattRes = battery(selected_tariff, profiles_B, battery_kW, battery_kWh,distributor)
-        net_load_batt = BattRes[['TS','NetLoad']].copy()
-        net_load_batt.rename(columns={'NetLoad':'kWh'},inplace=True)
-        net_load_batt['kWh']=net_load_batt['kWh']/2 # convert to kWh
+    if battery_kwh > 0:
+        profiles_b = pv_profile.copy()
+        profiles_b['PV'] = profiles_b['PV'] * 2  # convert to kW
+        profiles_b['Load'] = load_profile['kWh'] * 2  # convert to kW
+        battery_result = battery(selected_tariff, profiles_b, battery_kw, battery_kwh, distributor)
+        net_load_batt = battery_result[['TS', 'NetLoad']].copy()
+        net_load_batt.rename(columns={'NetLoad': 'kWh'}, inplace=True)
+        net_load_batt['kWh'] = net_load_batt['kWh'] / 2  # convert to kWh
 
-        PVBattSP = net_load_batt[['TS', 'kWh']].copy()
-        PVBattSP['kWh'] = PVBattSP['kWh'] * 2  # convert to kW
-        PVBattSP['hour'] = PVBattSP['TS'].dt.hour
-        PVBattSP['season'] = (PVBattSP['TS'].dt.month % 12 + 3) // 3
-        PVBattSP.drop(['TS'], inplace=True, axis=1)
-        PVBattSP = PVBattSP.groupby(['season', 'hour'], as_index=False).mean()
-        PVBattSP_json = PVBattSP.to_json(orient='values')
+        pv_batt_seasonal_pattern = net_load_batt[['TS', 'kWh']].copy()
+        pv_batt_seasonal_pattern['kWh'] = pv_batt_seasonal_pattern['kWh'] * 2  # convert to kW
+        pv_batt_seasonal_pattern['hour'] = pv_batt_seasonal_pattern['TS'].dt.hour
+        pv_batt_seasonal_pattern['season'] = (pv_batt_seasonal_pattern['TS'].dt.month % 12 + 3) // 3
+        pv_batt_seasonal_pattern.drop(['TS'], inplace=True, axis=1)
+        pv_batt_seasonal_pattern = pv_batt_seasonal_pattern.groupby(['season', 'hour'], as_index=False).mean()
+        pv_batt_seasonal_pattern_json = pv_batt_seasonal_pattern.to_json(orient='values')
 
         new_bill_batt = bill_calculator(net_load_batt, selected_tariff)
-        Total_saving_SolBatt = old_bill['Total_Bill'] - new_bill_batt['Total_Bill']
-        Saving_DueToNotUsingGrid_SolBatt = Total_saving_SolBatt - new_bill_batt[
+        total_saving_sol_batt = old_bill['Total_Bill'] - new_bill_batt['Total_Bill']
+        saving_due_to_not_using_grid_sol_batt = total_saving_sol_batt - new_bill_batt[
             'FiT_Rebate']  # Savings due to consuming PV energy instead of grid
-        NewLP_json = BattRes.to_json(orient='values')
-        Results.update({'Est_Annual_PV_export_SolBatt': new_bill_batt['Annual_kWh_Exp'],
-               'Saving_due_to_not_using_grid_SolBatt': Saving_DueToNotUsingGrid_SolBatt,
-                        'FiT_Payment_SolBatt': new_bill_batt['FiT_Rebate'],
-                        'New_Bill_SolBatt': new_bill_batt['Total_Bill'],'PVBatt_seasonal_pattern_kW': PVBattSP_json,
-                        'Annual_Saving_SolBatt': Total_saving_SolBatt,'NewProfile':NewLP_json})
-
-    return Results
+        new_load_profile_json = battery_result.to_json(orient='values')
+        results.update({'Est_Annual_PV_export_sol_batt': new_bill_batt['Annual_kWh_Exp'],
+                        'Est_Annual_PV_self_consumption_sol_batt': pv_generation - new_bill_batt['Annual_kWh_Exp'],
+                        'Saving_due_to_not_using_grid_sol_batt': saving_due_to_not_using_grid_sol_batt,
+                        'FiT_Payment_sol_batt': new_bill_batt['FiT_Rebate'],
+                        'New_Bill_sol_batt': new_bill_batt['Total_Bill'],
+                        'pv_batt_seasonal_pattern_kW': pv_batt_seasonal_pattern_json,
+                        'Annual_Saving_sol_batt': total_saving_sol_batt, 'NewProfile': new_load_profile_json})
+    return results
