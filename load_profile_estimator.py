@@ -6,21 +6,45 @@ import json
 import os
 import requests
 import pandas as pd
+import io
 
 # ---------- Example of creating the user input file with format -----------
 
-user_inputs = {'postcode': 2033, 'load_profile_provided': 'yes', 'family_size': '2', 'pool': 'yes',
-               'controlled_load': 'yes', 'AC': 'yes', 'dwell': 'house', 'smart_meter': 'yes',
-               'previous_usage': {'Bill 1': {'total': 'N/A', 'peak': '100', 'offpeak': '100', 'shoulder': '100',
+user_inputs = {'postcode': 2033, 'lat': -30, 'long': 150, 'load_profile_provided': 'yes', 'family_size': 2, 'poolpump': 'no',
+               'controlled_load': 'no', 'AC_type': 'Split', 'dwell': 'SeparateHouse', 'smart_meter': 'yes', 'dryer_usage': 'medium',
+                'HAS_GAS_HEATING': 'yes',  'HAS_GAS_HOT_WATER': 'yes', 'HAS_GAS_COOKING': 'yes','NUM_ROOMS_HEATED': 1, 'NUM_REFRIGERATORS': 1,
+               'previous_usage': {'Bill 1': {'total': 'N/A', 'peak': 700, 'offpeak': 500, 'shoulder': 300,
                                   'start_date': '2018-02-02', 'end_date': '2018-05-01'},
-                                  'Bill 2': {'total': 'N/A', 'peak': '120', 'offpeak': '110', 'shoulder': '50',
+                                  'Bill 2': {'total': 'N/A', 'peak': 300, 'offpeak': 200, 'shoulder': 100,
                                   'start_date': '2018-01-01', 'end_date': '2018-02-01'}}}
 
-# cwd = os.getcwd()
-# user_inputs_str = json.dumps(user_inputs)
-# with io.open(os.path.join(cwd, 'user_inputs.json'), 'w', encoding='utf8') as outfile:
-#     outfile.write(str(user_inputs_str))
 
+user_inputs_defaults = {'postcode': 2033, 'lat': -30, 'long': 150, 'load_profile_provided': 'yes', 'family_size': 2, 'poolpump': 'no',
+               'controlled_load': 'no', 'AC_type': 'Split', 'dwell': 'SeparateHouse', 'smart_meter': 'yes', 'dryer_usage': 'medium',
+                'HAS_GAS_HEATING': 'yes',  'HAS_GAS_HOT_WATER': 'yes', 'HAS_GAS_COOKING': 'yes','NUM_ROOMS_HEATED': 1, 'NUM_REFRIGERATORS': 1,
+               'previous_usage':''}
+# user_input_options:
+# postcode: a valid postcode in Australia (perhaps match against a list..
+# lat
+# long
+# load_profile_provided: yes / no
+# family_size: 1, 2, 3, 4+
+# poolpump: yes / no
+# dryer_usage: high/medium/low/no
+# controlled_load: yes / no
+# AC_type: Split, Ducted, NoAirCon, OtherAirCon
+# dwell: SeparateHouse, SemiDetached, Unit
+# smart_meter: yes / no
+# previous_usage : if clicked expand the first entry and if click + expand the next one and so on.
+
+cwd = os.getcwd()
+user_inputs_str = json.dumps(user_inputs)
+with io.open(os.path.join(cwd, 'user_inputs_Example.json'), 'w', encoding='utf8') as outfile:
+    outfile.write(str(user_inputs_str))
+
+user_inputs_defaults_str = json.dumps(user_inputs_defaults)
+with io.open(os.path.join(cwd, 'user_inputs_Default.json'), 'w', encoding='utf8') as outfile:
+    outfile.write(str(user_inputs_defaults_str))
 
 # ---------- Function -----------
 def estimator(user_inouts):

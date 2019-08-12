@@ -1,0 +1,12 @@
+
+Data/Tariff input- Postcodes to DNSPs_ZH.xlsx
+*.iml
+.idea/modules.xml
+.idea/misc.xml
+.idea/vcs.xml
+.idea/workspace.xml
+ Models/
+Models/CDD_Coef.pickle
+Models/HDD_Coef.pickle
+Models/TempCor.pickle
+test.py
