@@ -7,6 +7,7 @@ import requests
 import os
 import json
 import warnings
+import ast
 
 warnings.filterwarnings("ignore")
 
@@ -245,16 +246,23 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
         start_date = sample_load['READING_DATETIME'].min().strftime('%Y%m%d')
         end_date = sample_load['READING_DATETIME'].max().strftime('%Y%m%d')
 
-        url = 'https://power.larc.nasa.gov/cgi-bin/v1/DataAccess.py?request=execute&identifier=' \
-              'SinglePoint&parameters=CDD18_3,HDD18_3&startDate={}&endDate={}&userCommunity=SSE&' \
-              'tempAverage=DAILY&outputList=JSON,ASCII&lat={}&lon={}&user=anonymous'.format(
-               start_date, end_date, str(user_inputs['lat']), str(user_inputs['long']))
-
-        temp_data = requests.get(url)
-        temp_data = temp_data.json()
-        dh_temp_ws = pd.DataFrame.from_dict(temp_data['features'][0]['properties']['parameter'],
-                                            orient='columns').reset_index()
-        dh_temp_ws.rename(columns={'index': 'TS', 'CDD18_3': 'CDD', 'HDD18_3': 'HDD'}, inplace=True)
+        # first check CEEM API centre
+        url2 = 'https://energytariff.herokuapp.com/weather/{}/{}/{}/{}'.format(start_date, end_date,
+                                                                    str(user_inputs['lat']), str(user_inputs['long']))
+        temp_data2 = requests.get(url2)
+        temp_data2 = temp_data2.json()
+        if len(temp_data2) > 1:
+            dh_temp_ws = pd.DataFrame.from_dict(ast.literal_eval(temp_data2))
+        else:  # using NASA data
+            url = 'https://power.larc.nasa.gov/cgi-bin/v1/DataAccess.py?request=execute&identifier=' \
+                  'SinglePoint&parameters=CDD18_3,HDD18_3&startDate={}&endDate={}&userCommunity=SSE&' \
+                  'tempAverage=DAILY&outputList=JSON,ASCII&lat={}&lon={}&user=anonymous'.format(
+                   start_date, end_date, str(user_inputs['lat']), str(user_inputs['long']))
+            temp_data = requests.get(url)
+            temp_data = temp_data.json()
+            dh_temp_ws = pd.DataFrame.from_dict(temp_data['features'][0]['properties']['parameter'],
+                                                orient='columns').reset_index()
+            dh_temp_ws.rename(columns={'index': 'TS', 'CDD18_3': 'CDD', 'HDD18_3': 'HDD'}, inplace=True)
 
         # Adjusting the HDD and CDD
         dh_temp_ws['CDD'].where(dh_temp_ws['CDD'] > dh_temp_ws['HDD'], 0, inplace=True)
@@ -428,10 +436,7 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
 
             kb = 1
             usage_info = pd.DataFrame()
-            for k3, v3 in user_inputs['previous_usage'].items():
-                # start_day=min(pd.to_datetime(v3['start_date']),start_day)
-                # end_day = max(pd.to_datetime(v3['end_date']), end_day)
-
+            for v3 in user_inputs['previous_usage']:
                 usage_info_1 = pd.DataFrame({'TS': pd.date_range(start=v3['start_date'], end=v3['end_date'])})
                 usage_info_1['Peak'] = v3['peak']
                 usage_info_1['OffPeak'] = v3['offpeak']
@@ -444,23 +449,30 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
             start_date = usage_info['TS'].min().strftime('%Y%m%d')
             end_date = usage_info['TS'].max().strftime('%Y%m%d')
 
-            url = 'https://power.larc.nasa.gov/cgi-bin/v1/DataAccess.py?request=execute&identifier=' \
-                  'SinglePoint&parameters=CDD18_3,HDD18_3&startDate={}&endDate={}&userCommunity=SSE&' \
-                  'tempAverage=DAILY&outputList=JSON,ASCII&lat={}&lon={}&user=anonymous'.format(
-                start_date, end_date, str(user_inputs['lat']), str(user_inputs['long']))
-
-            temp_data = requests.get(url)
-            temp_data = temp_data.json()
-            dh_temp_ws = pd.DataFrame.from_dict(temp_data['features'][0]['properties']['parameter'],
-                                                orient='columns').reset_index()
-            dh_temp_ws.rename(columns={'index': 'TS', 'CDD18_3': 'CDD', 'HDD18_3': 'HDD'}, inplace=True)
+            # first check CEEM API centre
+            url2 = 'https://energytariff.herokuapp.com/weather/{}/{}/{}/{}'.format(start_date, end_date,
+                                                                                   str(user_inputs['lat']),
+                                                                                   str(user_inputs['long']))
+            temp_data2 = requests.get(url2)
+            temp_data2 = temp_data2.json()
+            if len(temp_data2) > 1:
+                dh_temp_ws = pd.DataFrame.from_dict(ast.literal_eval(temp_data2))
+            else:  # using NASA data
+                url = 'https://power.larc.nasa.gov/cgi-bin/v1/DataAccess.py?request=execute&identifier=' \
+                      'SinglePoint&parameters=CDD18_3,HDD18_3&startDate={}&endDate={}&userCommunity=SSE&' \
+                      'tempAverage=DAILY&outputList=JSON,ASCII&lat={}&lon={}&user=anonymous'.format(
+                       start_date, end_date, str(user_inputs['lat']), str(user_inputs['long']))
+                temp_data = requests.get(url)
+                temp_data = temp_data.json()
+                dh_temp_ws = pd.DataFrame.from_dict(temp_data['features'][0]['properties']['parameter'],
+                                                    orient='columns').reset_index()
+                dh_temp_ws.rename(columns={'index': 'TS', 'CDD18_3': 'CDD', 'HDD18_3': 'HDD'}, inplace=True)
 
             # WeatherData_sel = WeatherData[WeatherData['TS'].dt.normalize().isin(usage_info['TS'])].copy()
             dh_temp_ws['CDD'].where(dh_temp_ws['CDD'] > dh_temp_ws['HDD'], 0, inplace=True)
             dh_temp_ws['HDD'].where(dh_temp_ws['HDD'] > dh_temp_ws['CDD'], 0, inplace=True)
 
             dh_temp_ws['TS'] = pd.to_datetime(dh_temp_ws['TS'], format='%Y%m%d')
-
 
             dh_temp_ws['month'] = dh_temp_ws['TS'].dt.month
             dh_temp_ws['day'] = dh_temp_ws['TS'].dt.day
