@@ -10,3 +10,6 @@ Models/CDD_Coef.pickle
 Models/HDD_Coef.pickle
 Models/TempCor.pickle
 test.py
+.ipynb_checkpoints/SunSPoT Steps-checkpoint.ipynb
+__pycache__/saving_estimator.cpython-36.pyc
+.ipynb_checkpoints/SunSPoT Steps-checkpoint.ipynb
