@@ -248,7 +248,7 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
         url = 'https://power.larc.nasa.gov/cgi-bin/v1/DataAccess.py?request=execute&identifier=' \
               'SinglePoint&parameters=CDD18_3,HDD18_3&startDate={}&endDate={}&userCommunity=SSE&' \
               'tempAverage=DAILY&outputList=JSON,ASCII&lat={}&lon={}&user=anonymous'.format(
-            start_date, end_date, str(user_inputs['lat']), str(user_inputs['long']))
+               start_date, end_date, str(user_inputs['lat']), str(user_inputs['long']))
 
         temp_data = requests.get(url)
         temp_data = temp_data.json()
