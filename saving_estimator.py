@@ -47,8 +47,7 @@ def bill_calculator(load_profile, tariff):
         fit_rebate = annual_kwh_exp * tariff['Parameters']['FiT']['Value']
         annual_bill = {'Annual_kWh': annual_kwh, 'Annual_kWh_Exp': annual_kwh_exp, 'Num_of_Days': num_of_days,
                        'Daily_Charge': daily_charge, 'Energy_Charge with discount': energy_charge,
-                       'FiT_Rebate': fit_rebate,
-                       'Total_Bill': energy_charge + daily_charge - fit_rebate}
+                       'FiT_Rebate': fit_rebate, 'Total_Bill': energy_charge + daily_charge - fit_rebate}
         return annual_bill
 
     def tou_calc(load_profile, tariff):
@@ -624,9 +623,7 @@ def battery(tariff, profiles_b, battery_kw, battery_kwh, distributor):
         profiles_b = profiles_tou.copy()
     return profiles_b
 
-
 # ---------- Main Function -----------
-
 
 def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw, battery_kwh, distributor,
                user_input_load_profile):
