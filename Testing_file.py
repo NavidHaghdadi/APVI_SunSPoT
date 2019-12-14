@@ -25,6 +25,7 @@ user_inputs = json.load(open('user_inputs_Default.json'))
 # The default values are saved in user_inputs_Default.json.
 # if user provided load profile (here we assume it is saved in csv file)
 user_input_load_profile = pd.read_csv('SelfProvided_LoadProfile_Example.csv')
+user_input_load_profile['TS'] = pd.to_datetime(user_input_load_profile['TS'], format='%d/%m/%Y %H:%M')
 
 # 2- PV profile: (it's in kW output, hourly, local time, no daylight saving)
 
@@ -41,23 +42,28 @@ pv_size_kw = 3  # 3 kW
 # Suppose Icelab showed the list and user selected: Origin Flat Rate NSW (Endeavour area)
 
 tariff_name = "Origin Flat Rate NSW (Endeavour area)"
-tariff_name = "Power Direct TOU NSW"
+# tariff_name = "Power Direct TOU NSW"
 
-all_tariffs = requests.get('http://api.ceem.org.au/elec-tariffs/retail')
+all_tariffs = requests.get('http://api.ceem.org.au/electricity-tariffs/retail')
 all_tariffs = all_tariffs.json()
-for i in range(len(all_tariffs)):
-    if all_tariffs[i]['Name'] == tariff_name:
-        selected_tariff = all_tariffs[i]
-
+for i in range(len(all_tariffs[0]['Tariffs'])):
+    if all_tariffs[0]['Tariffs'][i]['Name'] == tariff_name:
+        selected_tariff = all_tariffs[0]['Tariffs'][i]
 
 # 5- Battery info (zero if no battery). Icelab to obtain from user (or we will have a dropdown list of some brands)
-battery_kw = 5
-battery_kwh = 5
+battery_kw = 0
+battery_kwh = 0
 
 # Distributor (Icelab to provide from the location of customer based on the distribution_boundaries.geojson file)
 distributor = 'Ausgrid'
 
 #  Running the function to get the result (with battery it takes 13 sec in my PC. without battery it's few seconds)
+
+# user_inputs['load_profile_provided']='yes'
+
+user_inputs['previous_usage']=[{"total": "N/A", "peak": 300, "offpeak": 300, "shoulder": 300,
+             "start_date": "2019-08-12", "end_date": "2019-08-14"}]
+
 Results = saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw, battery_kwh, distributor, user_input_load_profile)
 
 

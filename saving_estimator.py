@@ -22,121 +22,320 @@ warnings.filterwarnings("ignore")
 #  2- load_estimator estimates the load profile from demographic info and/or previous
 #  usages and/or historical load profile
 #  3- battery: estimates the net load for a load + PV + battery based on the tariff
-#  - if the tariff is flat rate, it is maximising the self consumption. i.e. always storing the excess PV in battery
+#  - if the tariff is flat rate or block rate, it is maximising the self consumption. i.e. always storing the excess PV in battery
 #  - if it is TOU, it is maximising the self consumption but also doesn't discharge the battery until peak time.
 #  4- Main function to call these.
 
 # -------------------- Bill Calculator function -----------
 
-
-def bill_calculator(load_profile, tariff):
+def bill_calculator(load_profile, tariff, network_load=None, fit=True):
     # the input is load profile (kwh over half hourly) for one year and the tariff.
     # First input (column) of load_profile should be timestamp and second should be kwh
     # load_profile.columns={'TS','kWh'}
+    # This function is originally created for CEEM's tariff tool and some of the functions are not used in SunSPot
+    # CEEM Bill_calculator github: https://github.com/UNSW-CEEM/Bill_Calculator
+    # CEEM tariff tool github: https://github.com/UNSW-CEEM/TDA_Python
+    #
+    load_profile = load_profile[['TS', 'kWh']].copy()
+    load_profile.set_index('TS', inplace=True)
+    load_profile = load_profile.fillna(0)
 
-    def fr_calc(load_profile, tariff):
-        load_exp = load_profile['kWh'].copy()
-        load_exp[load_exp > 0] = 0
-        load_imp = load_profile['kWh'].copy()
-        load_imp[load_imp < 0] = 0
-        annual_kwh = load_imp.sum()
-        annual_kwh_exp = -1 * load_exp.sum()
-        num_of_days = len(load_profile['TS'].dt.normalize().unique())
-        daily_charge = num_of_days * tariff['Parameters']['Daily']['Value']
-        energy_charge = annual_kwh * tariff['Parameters']['Energy']['Value'] * (1 - tariff['Discount (%)'] / 100)
-        fit_rebate = annual_kwh_exp * tariff['Parameters']['FiT']['Value']
-        annual_bill = {'Annual_kWh': annual_kwh, 'Annual_kWh_Exp': annual_kwh_exp, 'Num_of_Days': num_of_days,
-                       'Daily_Charge': daily_charge, 'Energy_Charge with discount': energy_charge,
-                       'FiT_Rebate': fit_rebate, 'Total_Bill': energy_charge + daily_charge - fit_rebate}
-        return annual_bill
+    def time_select(load_profile_s, par):
+        load_profile_s_t_a = pd.DataFrame()
+        for k2_1, v2_1, in par['TimeIntervals'].items():
+            if v2_1[0][0:2] == '24':
+                v2_1[0] = v2_1[1].replace("24", "00")
+            if v2_1[1][0:2] == '24':
+                v2_1[1] = v2_1[1].replace("24", "00")
+            if v2_1[0] != v2_1[1]:
+                load_profile_s_t = load_profile_s.between_time(start_time=v2_1[0], end_time=v2_1[1], include_start=False,
+                                                           include_end=True)
+            else:
+                load_profile_s_t = load_profile_s.copy()
 
-    def tou_calc(load_profile, tariff):
-        load_exp = load_profile['kWh'].copy()
-        load_exp[load_exp > 0] = 0
-        load_imp = load_profile['kWh'].copy()
-        load_imp[load_imp < 0] = 0
-        load_profile['time_ind'] = 0
+            if not par['Weekday']:
+                load_profile_s_t = load_profile_s_t.loc[load_profile_s_t.index.weekday >= 5].copy()
 
-        annual_kwh = load_imp.sum()
-        annual_kwh_exp = -1 * load_exp.sum()
+            if not par['Weekend']:
+                load_profile_s_t = load_profile_s_t.loc[load_profile_s_t.index.weekday < 5].copy()
 
-        num_of_days = len(load_profile["TS"].dt.normalize().unique())
-        daily_charge = num_of_days * tariff['Parameters']['Daily']['Value']
-        tou_energy_charge = dict.fromkeys(tariff['Parameters']['Energy'])
+            load_profile_s_t = load_profile_s_t.loc[load_profile_s_t.index.month.isin(par['Month']), :].copy()
 
-        ti = 0
-        all_tou_charge = 0
-        for k, v in tariff['Parameters']['Energy'].items():
-            this_part = tariff['Parameters']['Energy'][k].copy()
-            ti += 1
-            for k2, v2, in this_part['TimeIntervals'].items():
-                start_hour = int(this_part['TimeIntervals'][k2][0][0:2])
-                if start_hour == 24:
-                    start_hour = 0
-                start_min = int(this_part['TimeIntervals'][k2][0][3:5])
-                end_hour = int(this_part['TimeIntervals'][k2][1][0:2])
-                if end_hour == 0:
-                    end_hour = 24
-                end_min = int(this_part['TimeIntervals'][k2][1][3:5])
-                if this_part['Weekday']:
-                    if start_hour <= end_hour:
-                        load_profile.time_ind = np.where((load_profile['TS'].dt.weekday < 5) &
-                                                         (load_profile['TS'].dt.month.isin(this_part['Month'])) &
-                                                         (((60 * load_profile['TS'].dt.hour + load_profile[
-                                                             'TS'].dt.minute)
-                                                           >= (60 * start_hour + start_min)) &
-                                                          ((60 * load_profile['TS'].dt.hour + load_profile[
-                                                              'TS'].dt.minute)
-                                                           < (60 * end_hour + end_min))), ti, load_profile.time_ind)
+            load_profile_s_t_a = pd.concat([load_profile_s_t_a, load_profile_s_t])
+        return load_profile_s_t_a
+
+    # Calculate imports and exports
+    results = {}
+
+    Temp_imp = load_profile.values
+    Temp_exp = Temp_imp.copy()
+    Temp_imp[Temp_imp < 0] = 0
+    Temp_exp[Temp_exp > 0] = 0
+    load_profile_import = pd.DataFrame(Temp_imp, columns=load_profile.columns, index=load_profile.index)
+    load_profile_export = pd.DataFrame(Temp_exp, columns=load_profile.columns, index=load_profile.index)
+
+    results['LoadInfo'] = pd.DataFrame(index=[col for col in load_profile.columns],
+                                       data=np.sum(load_profile_import.values, axis=0), columns=['Annual_kWh'])
+    if fit:
+        results['LoadInfo']['Annual_kWh_exp'] = -1 * np.sum(load_profile_export.values, axis=0)
+    # If it is retailer put retailer as a component to make it similar to network tariffs
+    if tariff['ProviderType'] == 'Retailer':
+        tariff_temp = tariff.copy()
+        del tariff_temp['Parameters']
+        tariff_temp['Parameters'] = {'Retailer': tariff['Parameters']}
+        tariff = tariff_temp.copy()
+
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        results[TarComp] = pd.DataFrame(index=results['LoadInfo'].index)
+
+    # Calculate the FiT
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        if 'FiT' in TarCompVal.keys():
+            results[TarComp]['Charge_FiT_Rebate'] = -1 * results['LoadInfo']['Annual_kWh_exp'] * TarCompVal['FiT']['Value']
+        elif 'FiT_TOU' in TarCompVal.keys():
+            load_profile_ti_exp = pd.DataFrame()
+            load_profile_ti_exp_charge = pd.DataFrame()
+            for k, v in TarCompVal['FiT_TOU'].items():
+                this_part = v.copy()
+                if 'Weekday' not in this_part:
+                    this_part['Weekday'] = True
+                    this_part['Weekend'] = True
+                if 'TimeIntervals' not in this_part:
+                    this_part['TimeIntervals'] = {'T1': ['00:00', '00:00']}
+                if 'Month' not in this_part:
+                    this_part['Month'] = list(range(1, 13))
+                load_profile_t_a = time_select(load_profile_export, this_part)
+                load_profile_ti_exp[k] = load_profile_t_a.sum()
+                results[TarComp]['kWh_Exp' + k] = load_profile_ti_exp[k].copy()
+                load_profile_ti_exp_charge[k] = this_part['Value'] * load_profile_ti_exp[k]
+                results[TarComp]['FiT_C_TOU' + k] = load_profile_ti_exp_charge[k].copy()
+            results[TarComp]['Charge_FiT_Rebate'] = load_profile_ti_exp_charge.sum(axis=1)
+
+    # Check if daily exists and calculate the charge
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        if 'Daily' in TarCompVal.keys():
+            num_days = (len(load_profile.index.normalize().unique()) - 1)
+            break
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        if 'Daily' in TarCompVal.keys():
+            results[TarComp]['Charge_Daily'] = num_days * TarCompVal['Daily']['Value']
+
+    # Energy
+    # Flat Rate:
+    # Check if flat rate charge exists and calculate the charge
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        if 'FlatRate' in TarCompVal.keys():
+            results[TarComp]['Charge_FlatRate'] = results['LoadInfo']['Annual_kWh'] * TarCompVal['FlatRate']['Value']
+
+
+    # Block Annual:
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        if 'BlockAnnual' in TarCompVal.keys():
+            block_use = results['LoadInfo'][['Annual_kWh']].copy()
+            block_use_charge = block_use.copy()
+            # separating the blocks of usage
+            lim = 0
+            for k, v in TarCompVal['BlockAnnual'].items():
+                block_use[k] = block_use['Annual_kWh']
+                block_use[k][block_use[k] > v['HighBound']] = v['HighBound']
+                block_use[k] = block_use[k] - lim
+                block_use[k][block_use[k] < 0] = 0
+                lim = v['HighBound']
+                block_use_charge[k] = block_use[k] * v['Value']
+            del block_use['Annual_kWh']
+            del block_use_charge['Annual_kWh']
+            results[TarComp]['Charge_BlockAnnual'] = block_use_charge.sum(axis=1)
+
+    # Block Quarterly:
+    # check if it has quarterly and if yes calculate the quarterly energy
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        if 'BlockQuarterly' in TarCompVal.keys():
+            for Q in range(1, 5):
+                load_profile_q = load_profile_import.loc[
+                                 load_profile_import.index.month.isin(list(range((Q - 1) * 3 + 1, Q * 3 + 1))), :]
+                results['LoadInfo']['kWh_Q' + str(Q)] = [
+                    np.nansum(load_profile_q[col].values[load_profile_q[col].values > 0])
+                    for col in load_profile_q.columns]
+            break
+
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        if 'BlockQuarterly' in TarCompVal.keys():
+            for Q in range(1, 5):
+                block_use = results['LoadInfo'][['kWh_Q' + str(Q)]].copy()
+                block_use_charge = block_use.copy()
+                lim = 0
+                for k, v in TarCompVal['BlockQuarterly'].items():
+                    block_use[k] = block_use['kWh_Q' + str(Q)]
+                    block_use[k][block_use[k] > v['HighBound']] = v['HighBound']
+                    block_use[k] = block_use[k] - lim
+                    block_use[k][block_use[k] < 0] = 0
+                    lim = v['HighBound']
+                    block_use_charge[k] = block_use[k] * v['Value']
+                del block_use['kWh_Q' + str(Q)]
+                del block_use_charge['kWh_Q' + str(Q)]
+                results[TarComp]['C_Q' + str(Q)] = block_use_charge.sum(axis=1)
+            results[TarComp]['Charge_BlockQuarterly'] = results[TarComp][
+                ['C_Q' + str(Q) for Q in range(1, 5)]].sum(axis=1)
+
+    # Block Monthly:
+    # check if it has Monthly and if yes calculate the Monthly energy
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        if 'BlockMonthly' in TarCompVal.keys():
+            for m in range(1, 13):
+                load_profile_m = load_profile_import.loc[load_profile_import.index.month == m, :]
+                results['LoadInfo']['kWh_m' + str(m)] = [
+                    np.nansum(load_profile_m[col].values[load_profile_m[col].values > 0])
+                    for col in load_profile_m.columns]
+            break
+
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        if 'BlockMonthly' in TarCompVal.keys():
+            for Q in range(1, 13):
+                block_use = results['LoadInfo'][['kWh_m' + str(Q)]].copy()
+                block_use_charge = block_use.copy()
+                lim = 0
+                for k, v in TarCompVal['BlockMonthly'].items():
+                    block_use[k] = block_use['kWh_m' + str(Q)]
+                    block_use[k][block_use[k] > v['HighBound']] = v['HighBound']
+                    block_use[k] = block_use[k] - lim
+                    block_use[k][block_use[k] < 0] = 0
+                    lim = v['HighBound']
+                    block_use_charge[k] = block_use[k] * v['Value']
+                del block_use['kWh_m' + str(Q)]
+                del block_use_charge['kWh_m' + str(Q)]
+                results[TarComp]['C_m' + str(Q)] = block_use_charge.sum(axis=1)
+            results[TarComp]['Charge_BlockMonthly'] = results[TarComp][['C_m' + str(Q) for Q in range(1, 13)]].sum(
+                axis=1)
+
+    # Block Daily:
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        if 'BlockDaily' in TarCompVal.keys():
+            DailykWh = load_profile_import.resample('D').sum()
+            block_use_temp_charge = DailykWh.copy()
+            block_use_temp_charge.iloc[:, :] = 0
+            lim = 0
+            for k, v in TarCompVal['BlockDaily'].items():
+                block_use_temp = DailykWh.copy()
+                block_use_temp[block_use_temp > v['HighBound']] = v['HighBound']
+                block_use_temp = block_use_temp - lim
+                block_use_temp[block_use_temp < 0] = 0
+                lim = v['HighBound']
+                block_use_temp_charge = block_use_temp_charge + block_use_temp * v['Value']
+            results[TarComp]['Charge_BlockDaily'] = block_use_temp_charge.sum(axis=0)
+
+
+    # TOU energy
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        if 'TOU' in TarCompVal.keys():
+            load_profile_ti = pd.DataFrame()
+            load_profile_ti_charge = pd.DataFrame()
+            for k, v in TarCompVal['TOU'].items():
+                this_part = v.copy()
+                if 'Weekday' not in this_part:
+                    this_part['Weekday'] = True
+                    this_part['Weekend'] = True
+                if 'TimeIntervals' not in this_part:
+                    this_part['TimeIntervals'] = {'T1': ['00:00', '00:00']}
+                if 'Month' not in this_part:
+                    this_part['Month'] = list(range(1, 13))
+                load_profile_t_a = time_select(load_profile_import, this_part)
+                load_profile_ti[k] = load_profile_t_a.sum()
+                results[TarComp]['kWh_' + k] = load_profile_ti[k].copy()
+                load_profile_ti_charge[k] = this_part['Value'] * load_profile_ti[k]
+                results[TarComp]['C_' + k] = load_profile_ti_charge[k].copy()
+            results[TarComp]['Charge_TOU'] = load_profile_ti_charge.sum(axis=1)
+
+    # Demand charge:
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        if 'Demand' in TarCompVal.keys():
+            for DemCharComp, DemCharCompVal in TarCompVal['Demand'].items():
+                ts_num = DemCharCompVal['Demand Window Length']  # number of timestamp
+                num_of_peaks = DemCharCompVal['Number of Peaks']
+                if ts_num > 1:
+                    load_profile_r = load_profile_import.rolling(ts_num, min_periods=1).mean()
+                else:
+                    load_profile_r = load_profile_import.copy()
+                load_profile_f = time_select(load_profile_r, DemCharCompVal)
+
+                # if capacity charge is applied meaning the charge only applies when you exceed the capacity for
+                #  a certain number of times
+                if 'Capacity' in DemCharCompVal:
+                    # please note the capacity charge only works with user's demand peak (not coincident peak)
+                    # Customers can exceed their capacity level on x separate days per month during each interval
+                    # (day or night). If they exceed more than x times, they will be charged for the highest
+                    # exceedance of their capacity the capacity charge (if they don't exceed) is already included
+                    # in the fixed charge so they only pay for the difference
+                    capacity = DemCharCompVal['Capacity']['Value']
+                    if 'Capacity Exceeded No' in DemCharCompVal:
+                        cap_exc_no = DemCharCompVal['Capacity Exceeded No']
                     else:
-                        load_profile.time_ind = np.where((load_profile['TS'].dt.weekday < 5) &
-                                                         (load_profile['TS'].dt.month.isin(this_part['Month'])) &
-                                                         (((60 * load_profile['TS'].dt.hour + load_profile[
-                                                             'TS'].dt.minute)
-                                                           >= (60 * start_hour + start_min)) |
-                                                          ((60 * load_profile['TS'].dt.hour + load_profile[
-                                                              'TS'].dt.minute)
-                                                           < (60 * end_hour + end_min))), ti, load_profile.time_ind)
-                if this_part['Weekend']:
-                    if start_hour <= end_hour:
-                        load_profile.time_ind = np.where((load_profile['TS'].dt.weekday >= 5) &
-                                                         (load_profile['TS'].dt.month.isin(this_part['Month'])) &
-                                                         (((60 * load_profile['TS'].dt.hour + load_profile[
-                                                             'TS'].dt.minute)
-                                                           >= (60 * start_hour + start_min)) &
-                                                          ((60 * load_profile['TS'].dt.hour + load_profile[
-                                                              'TS'].dt.minute)
-                                                           < (60 * end_hour + end_min))), ti, load_profile.time_ind)
-                    else:
-                        load_profile.time_ind = np.where((load_profile['TS'].dt.weekday >= 5) &
-                                                         (load_profile['TS'].dt.month.isin(this_part['Month'])) &
-                                                         (((60 * load_profile['TS'].dt.hour + load_profile[
-                                                             'TS'].dt.minute)
-                                                           >= (60 * start_hour + start_min)) |
-                                                          ((60 * load_profile['TS'].dt.hour + load_profile[
-                                                              'TS'].dt.minute)
-                                                           < (60 * end_hour + end_min))), ti, load_profile.time_ind)
-            tou_energy_charge[k] = {'kWh': load_imp[load_profile.time_ind == ti].sum(),
-                                    'Charge': this_part['Value'] * load_imp[load_profile.time_ind == ti].sum()}
-            all_tou_charge = all_tou_charge + tou_energy_charge[k]['Charge']
+                        cap_exc_no = 0
+                    load_profile_f = load_profile_f - (capacity / 2)
+                    load_profile_f = load_profile_f.clip(lower=0)
+                    load_profile_f_g = load_profile_f.groupby(load_profile_f.index.normalize()).max()
+                    for m in range(1, 13):
+                        arr = load_profile_f_g.loc[load_profile_f_g.index.month == m, :].copy().values
+                        cap_exc_no_val = np.sum(arr > 0, axis=0)
+                        load_profile_f.loc[load_profile_f.index.month == m, cap_exc_no_val <= cap_exc_no] = 0
+                    load_profile_f2 = load_profile_f.copy()
+                else:
+                    load_profile_f2 = load_profile_f.copy()
+                based_on_network_peak = False
+                if 'Based on Network Peak' in DemCharCompVal:
+                    if DemCharCompVal['Based on Network Peak']:
+                        based_on_network_peak = True
+                # minimum demand or demand charge
+                min_dem1 = 0
+                min_dem2 = 0
+                if 'Min Demand (kW)' in DemCharCompVal:
+                    min_dem1 = DemCharCompVal['Min Demand (kW)']
+                if 'Min Demand Charge ($)' in DemCharCompVal:
+                    if DemCharCompVal['Value'] > 0:
+                        min_dem2 = DemCharCompVal['Min Demand Charge ($)'] / DemCharCompVal['Value']
+                min_dem = min(min_dem1, min_dem2)
+                if based_on_network_peak:
+                    new_load = pd.merge(load_profile_f2, network_load, left_index=True, right_index=True)
+                    average_peaks_all = np.empty((0, new_load.shape[1] - 1), dtype=float)
+                    for m in DemCharCompVal['Month']:
+                        new_load2 = new_load.loc[new_load.index.month == m, :].copy()
+                        new_load2.sort_values(by='NetworkLoad', inplace=True, ascending=False)
+                        average_peaks_all = np.append(average_peaks_all,
+                                                      [2 * new_load2.iloc[:num_of_peaks, :-1].values.mean(axis=0)],
+                                                      axis=0)
+                    average_peaks_all = np.clip(average_peaks_all, a_min=min_dem, a_max=None)
+                    average_peaks_all_sum = average_peaks_all.sum(axis=0)
+                else:
+                    average_peaks_all = np.empty((0, load_profile_f.shape[1]), dtype=float)
+                    for m in DemCharCompVal['Month']:
+                        arr = load_profile_f.loc[load_profile_f.index.month == m, :].copy().values
+                        arr.sort(axis=0)
+                        arr = arr[::-1]
+                        average_peaks_all = np.append(average_peaks_all, [2 * arr[:num_of_peaks, :].mean(axis=0)],
+                                                      axis=0)
+                    average_peaks_all = np.clip(average_peaks_all, a_min=min_dem, a_max=None)
+                    average_peaks_all_sum = average_peaks_all.sum(axis=0)
+                results[TarComp]['Avg_kW_' + DemCharComp] = average_peaks_all_sum / len(DemCharCompVal['Month'])
+                results[TarComp]['C_' + DemCharComp] = average_peaks_all_sum * DemCharCompVal['Value']
+                results[TarComp]['Charge_Demand'] = results[TarComp][
+                    [col for col in results[TarComp] if col.startswith('C_')]].sum(axis=1)
 
-        all_tou_charge = all_tou_charge * (1 - tariff['Discount (%)'] / 100)
-        fit_rebate = annual_kwh_exp * tariff['Parameters']['FiT']['Value']
-        annual_bill = {'Annual_kWh': annual_kwh, 'Annual_kWh_Exp': annual_kwh_exp, 'Num_of_Days': num_of_days,
-                       'Daily_Charge': daily_charge, 'FiT_Rebate': fit_rebate, 'Energy_Charge': tou_energy_charge,
-                       'Total_Energy_Charge with discount': all_tou_charge,
-                       'Total_Bill': all_tou_charge + daily_charge - fit_rebate}
-        return annual_bill
+    for k, v in results.items():
+        if k != 'LoadInfo':
+            results[k]['Bill'] = results[k][[col for col in results[k].columns if col.startswith('Charge')]].sum(axis=1)
+    energy_comp_list = ['BlockAnnual', 'BlockQuarterly', 'BlockMonthly', 'BlockDaily', 'FlatRate', 'TOU']
+    tariff_comp_list = []
+    for TarComp, TarCompVal in tariff['Parameters'].items():
+        for TarComp2, TarCompVal2 in tariff['Parameters'][TarComp].items():
+            tariff_comp_list.append(TarComp2)
+    tariff_comp_list = list(set(tariff_comp_list))
+    energy_lst = [value for value in tariff_comp_list if value in energy_comp_list]
 
-    # Checking the type and run the appropriate function
-    if tariff['Type'] == 'Flat_rate':
-        total_bill = fr_calc(load_profile, tariff)
-    elif tariff['Type'] == 'TOU':
-        total_bill = tou_calc(load_profile, tariff)
+    if len(energy_lst) < 1:
+        raise ValueError("There is no energy charge component. Please fix the tariff and try again!")
+    elif len(energy_lst) > 1:
+        raise ValueError("There are more than one energy charge component. Please fix the tariff and try again!")
     else:
-        total_bill = 'Error'
-
-    return total_bill
+        return results
 
 
 def load_estimator(user_inputs, distributor, user_input_load_profile):
@@ -404,31 +603,31 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
                                     full_load.loc[(full_load['TS'].dt.weekday < 5) &
                                                   (full_load['TS'].dt.month.isin(this_part['Month'])) &
                                                   (((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
-                                                    >= (60 * start_hour + start_min)) &
+                                                    > (60 * start_hour + start_min)) &
                                                    ((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
-                                                    < (60 * end_hour + end_min))), 'TOU'] = k1
+                                                    <= (60 * end_hour + end_min))), 'TOU'] = k1
                                 else:
                                     full_load.loc[(full_load['TS'].dt.weekday < 5) &
                                                   (full_load['TS'].dt.month.isin(this_part['Month'])) &
                                                   (((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
-                                                    >= (60 * start_hour + start_min)) |
+                                                    > (60 * start_hour + start_min)) |
                                                    ((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
-                                                    < (60 * end_hour + end_min))), 'TOU'] = k1
+                                                    <= (60 * end_hour + end_min))), 'TOU'] = k1
                             if this_part['Weekend']:
                                 if start_hour <= end_hour:
                                     full_load.loc[(full_load['TS'].dt.weekday >= 5) &
                                                   (full_load['TS'].dt.month.isin(this_part['Month'])) &
                                                   (((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
-                                                    >= (60 * start_hour + start_min)) &
+                                                    > (60 * start_hour + start_min)) &
                                                    ((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
-                                                    < (60 * end_hour + end_min))), 'TOU'] = k1
+                                                    <= (60 * end_hour + end_min))), 'TOU'] = k1
                                 else:
                                     full_load.loc[(full_load['TS'].dt.weekday >= 5) &
                                                   (full_load['TS'].dt.month.isin(this_part['Month'])) &
                                                   (((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
-                                                    >= (60 * start_hour + start_min)) |
+                                                    > (60 * start_hour + start_min)) |
                                                    ((60 * full_load['TS'].dt.hour + full_load['TS'].dt.minute)
-                                                    < (60 * end_hour + end_min))), 'TOU'] = k1
+                                                    <= (60 * end_hour + end_min))), 'TOU'] = k1
 
             else:
                 full_load['TOU'] = 'Total'
@@ -437,10 +636,27 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
             usage_info = pd.DataFrame()
             for v3 in user_inputs['previous_usage']:
                 usage_info_1 = pd.DataFrame({'TS': pd.date_range(start=v3['start_date'], end=v3['end_date'])})
-                usage_info_1['Peak'] = v3['peak']
-                usage_info_1['OffPeak'] = v3['offpeak']
-                usage_info_1['Shoulder'] = v3['shoulder']
-                usage_info_1['Total'] = v3['total']
+
+                if 'peak' in v3:
+                    usage_info_1['Peak'] = v3['peak']
+                else:
+                    usage_info_1['Peak'] = 'N/A'
+
+                if 'offpeak' in v3:
+                    usage_info_1['OffPeak'] = v3['offpeak']
+                else:
+                    usage_info_1['OffPeak'] = 'N/A'
+
+                if 'shoulder' in v3:
+                    usage_info_1['Shoulder'] = v3['shoulder']
+                else:
+                    usage_info_1['Shoulder'] = 'N/A'
+
+                if 'total' in v3:
+                    usage_info_1['Total'] = v3['total']
+                else:
+                    usage_info_1['Total'] = 'N/A'
+
                 usage_info_1['BillNo'] = kb
                 kb += 1
                 usage_info = pd.concat([usage_info, usage_info_1], axis=0)
@@ -478,7 +694,7 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
 
             usage_info = usage_info.join(dh_temp_ws.set_index(['TS']), on=['TS'])
 
-            if user_inputs['smart_meter'] == 'yes':
+            if 'Peak' in usage_info.sum():
                 usage_info_2 = pd.melt(usage_info, id_vars=['TS', 'BillNo', 'CDD', 'HDD', 'month', 'day'],
                                        value_vars=['Peak', 'OffPeak', 'Shoulder'], var_name='TOU',
                                        value_name='kWh_usage')
@@ -647,8 +863,8 @@ def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw,
     net_load['kWh'] = net_load['kWh'] - pv_profile['PV']
     new_bill = bill_calculator(net_load, selected_tariff)
     pv_generation = pv_profile.PV.sum()
-    total_saving_solar_only = old_bill['Total_Bill'] - new_bill['Total_Bill']
-    saving_due_to_not_using_grid_solar_only = total_saving_solar_only - new_bill['FiT_Rebate']
+    total_saving_solar_only = old_bill['Retailer']['Bill'].values[0] - new_bill['Retailer']['Bill'].values[0]
+    saving_due_to_not_using_grid_solar_only = total_saving_solar_only + new_bill['Retailer']['Charge_FiT_Rebate'].values[0]
     # Savings due to consuming PV energy instead of grid
 
     # Seasonal Pattern (1: Summer, 2: fall, 3: winter, 4: spring)
@@ -672,14 +888,14 @@ def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw,
     load_profile_json = load_profile.to_json(orient='values')
 
     results = {'Annual_PV_Generation': pv_generation, 'Annual_PV_Generation_per_kW': pv_generation / pv_size_kw,
-               'Est_Annual_PV_export_SolarOnly': new_bill['Annual_kWh_Exp'],
-               'Est_Annual_PV_self_consumption_SolarOnly': pv_generation-new_bill['Annual_kWh_Exp'],
+               'Est_Annual_PV_export_SolarOnly': new_bill['LoadInfo']['Annual_kWh_exp'].values[0],
+               'Est_Annual_PV_self_consumption_SolarOnly': pv_generation-new_bill['LoadInfo']['Annual_kWh_exp'].values[0],
                'Saving_due_to_not_using_grid_SolarOnly': saving_due_to_not_using_grid_solar_only,
-               'FiT_Payment_SolarOnly': new_bill['FiT_Rebate'],
+               'FiT_Payment_SolarOnly': -1 * new_bill['Retailer']['Charge_FiT_Rebate'].values[0],
                'Annual_Saving_SolarOnly': total_saving_solar_only,
                'Load_seasonal_pattern_kW': load_seasonal_pattern_json,
                'PV_seasonal_pattern_kW': pv_seasonal_pattern_json,
-               "Old_Bill": old_bill['Total_Bill'], "New_Bill_SolarOnly": new_bill['Total_Bill'],
+               "Old_Bill": old_bill['Retailer']['Bill'].values[0], "New_Bill_SolarOnly": new_bill['Retailer']['Bill'].values[0],
                'Load_Prof': load_profile_json}
 
     # LoadProf = pd.read_json(load_profile_json)
@@ -707,15 +923,15 @@ def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw,
         pv_batt_seasonal_pattern_json = pv_batt_seasonal_pattern.to_json(orient='values')
 
         new_bill_batt = bill_calculator(net_load_batt, selected_tariff)
-        total_saving_sol_batt = old_bill['Total_Bill'] - new_bill_batt['Total_Bill']
-        saving_due_to_not_using_grid_sol_batt = total_saving_sol_batt - new_bill_batt[
-            'FiT_Rebate']  # Savings due to consuming PV energy instead of grid
+        total_saving_sol_batt = old_bill['Retailer']['Bill'] - new_bill_batt['Retailer']['Bill'].values[0]
+        saving_due_to_not_using_grid_sol_batt = total_saving_sol_batt + new_bill_batt['Retailer']['Charge_FiT_Rebate'].values[0]
+        # Savings due to consuming PV energy instead of grid
         new_load_profile_json = battery_result.to_json(orient='values')
-        results.update({'Est_Annual_PV_export_sol_batt': new_bill_batt['Annual_kWh_Exp'],
-                        'Est_Annual_PV_self_consumption_sol_batt': pv_generation - new_bill_batt['Annual_kWh_Exp'],
+        results.update({'Est_Annual_PV_export_sol_batt': new_bill_batt['LoadInfo']['Annual_kWh_exp'].values[0],
+                        'Est_Annual_PV_self_consumption_sol_batt': pv_generation - new_bill_batt['LoadInfo']['Annual_kWh_exp'].values[0],
                         'Saving_due_to_not_using_grid_sol_batt': saving_due_to_not_using_grid_sol_batt,
-                        'FiT_Payment_sol_batt': new_bill_batt['FiT_Rebate'],
-                        'New_Bill_sol_batt': new_bill_batt['Total_Bill'],
+                        'FiT_Payment_sol_batt': -1 * new_bill_batt['Retailer']['Charge_FiT_Rebate'].values[0],
+                        'New_Bill_sol_batt': new_bill_batt['Retailer']['Bill'].values[0],
                         'pv_batt_seasonal_pattern_kW': pv_batt_seasonal_pattern_json,
                         'Annual_Saving_sol_batt': total_saving_sol_batt, 'NewProfile': new_load_profile_json})
     return results
