@@ -923,7 +923,7 @@ def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw,
         pv_batt_seasonal_pattern_json = pv_batt_seasonal_pattern.to_json(orient='values')
 
         new_bill_batt = bill_calculator(net_load_batt, selected_tariff)
-        total_saving_sol_batt = old_bill['Retailer']['Bill'] - new_bill_batt['Retailer']['Bill'].values[0]
+        total_saving_sol_batt = old_bill['Retailer']['Bill'].values[0] - new_bill_batt['Retailer']['Bill'].values[0]
         saving_due_to_not_using_grid_sol_batt = total_saving_sol_batt + new_bill_batt['Retailer']['Charge_FiT_Rebate'].values[0]
         # Savings due to consuming PV energy instead of grid
         new_load_profile_json = battery_result.to_json(orient='values')

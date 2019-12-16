@@ -51,8 +51,8 @@ for i in range(len(all_tariffs[0]['Tariffs'])):
         selected_tariff = all_tariffs[0]['Tariffs'][i]
 
 # 5- Battery info (zero if no battery). Icelab to obtain from user (or we will have a dropdown list of some brands)
-battery_kw = 0
-battery_kwh = 0
+battery_kw = 3
+battery_kwh = 3
 
 # Distributor (Icelab to provide from the location of customer based on the distribution_boundaries.geojson file)
 distributor = 'Ausgrid'
