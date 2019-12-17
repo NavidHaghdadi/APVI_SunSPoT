@@ -885,7 +885,8 @@ def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw,
     pv_seasonal_pattern_json = pv_seasonal_pattern.to_json(orient='values')
 
     # might remove LP from here and also the results
-    load_profile_json = load_profile.to_json(orient='values')
+    load_profile_kWh = load_profile.drop(columns=['kW'])
+    load_profile_json = load_profile_kWh.to_json(orient='values')
 
     results = {'Annual_PV_Generation': pv_generation, 'Annual_PV_Generation_per_kW': pv_generation / pv_size_kw,
                'Est_Annual_PV_export_SolarOnly': new_bill['LoadInfo']['Annual_kWh_exp'].values[0],

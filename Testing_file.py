@@ -31,7 +31,7 @@ user_input_load_profile['TS'] = pd.to_datetime(user_input_load_profile['TS'], fo
 
 cwd = os.getcwd()
 pv_profile = pd.read_csv(os.path.join(cwd, "PVProfile_Example.csv"))
-pv_profile['TS'] = pd.to_datetime(pv_profile['TS'],format='%d/%m/%Y %H:%M')
+pv_profile['TS'] = pd.to_datetime(pv_profile['TS'], format='%d/%m/%Y %H:%M')
 
 
 # 3- PV size. Icelab to provide based on selected roof area (in the json file it is P0)
@@ -67,3 +67,27 @@ user_inputs['previous_usage']=[{"total": "N/A", "peak": 300, "offpeak": 300, "sh
 Results = saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw, battery_kwh, distributor, user_input_load_profile)
 
 
+# Testing output results
+import ast
+
+# reading load file
+load_text_file = open("LPoutputSample.txt", "r")
+x = load_text_file.readlines()
+b = ast.literal_eval(x[0])
+x2 = pd.DataFrame(b)
+x2.columns = ['TS_Epoch', 'kWh', 'kW', 'TOU']
+x2['TS'] = pd.to_datetime(x2['TS_Epoch'], unit='ms')
+
+LoadOutput = x2.copy()
+
+# reading PV file
+text_file = open("PVOutputSample2.txt", "r")
+x = text_file.readlines()
+x[0] = x[0].replace('â†µ', ' ')
+
+span = 2
+x2 = x[0].split(" ")
+x3 = [" ".join(x2[i:i+span]) for i in range(0, len(x2), span)]
+x4 = pd.DataFrame([sub.split(",") for sub in x3])
+
+PVOutput = x4.copy()
