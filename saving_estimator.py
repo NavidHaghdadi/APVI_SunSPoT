@@ -360,11 +360,11 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
     if user_inputs['controlled_load'] == 'yes':
         demog_info['CONTROLLED_LOAD_CNT'] = 1
 
-    if user_inputs['dryer_usage'] == 'high':
+    if user_inputs['dryer_usage'].lower() == 'high':
         demog_info['DRYER_USAGE_CD'] = 3
-    elif user_inputs['dryer_usage'] == 'medium':
+    elif user_inputs['dryer_usage'].lower() == 'medium':
         demog_info['DRYER_USAGE_CD'] = 2
-    elif user_inputs['dryer_usage'] == 'low':
+    elif user_inputs['dryer_usage'].lower() == 'low':
         demog_info['DRYER_USAGE_CD'] = 1
     else:
         demog_info['DRYER_USAGE_CD'] = 0
@@ -437,7 +437,7 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
         sample_load = user_input_load_profile.copy()
         sample_load.rename(columns={sample_load.columns[0]: 'READING_DATETIME', sample_load.columns[1]: 'kWh'},
                            inplace=True)
-        sample_load['READING_DATETIME'] = pd.to_datetime(sample_load['READING_DATETIME'], format='%d/%m/%Y %H:%M')
+        sample_load['READING_DATETIME'] = pd.to_datetime(sample_load['READING_DATETIME'], infer_datetime_format=True)
         sample_load['TS_N'] = sample_load['READING_DATETIME'].dt.normalize()
 
         # 1- Temperature data of the same period of time should be grabbed from NASA website
