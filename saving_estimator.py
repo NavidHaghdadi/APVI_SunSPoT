@@ -27,7 +27,6 @@ warnings.filterwarnings("ignore")
 #  4- Main function to call these.
 
 # -------------------- Bill Calculator function -----------
-
 def bill_calculator(load_profile, tariff, network_load=None, fit=True):
     # the input is load profile (kwh over half hourly) for one year and the tariff.
     # First input (column) of load_profile should be timestamp and second should be kwh
@@ -337,8 +336,8 @@ def bill_calculator(load_profile, tariff, network_load=None, fit=True):
     else:
         return results
 
-
-def load_estimator(user_inputs, distributor, user_input_load_profile):
+# -------------------- Load estimation function -----------
+def load_estimator(user_inputs, distributor, user_input_load_profile, first_pass):
     # This function is for estimating load profile from provided info. The inputs could be:
     #  - Historical load profile
     #  - Historical usage (user reads from bill)
@@ -431,22 +430,50 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
     # If load profile is provided: (date and location should be known)
     if user_inputs['load_profile_provided'] == 'yes':
 
-        # Example: Load the example csv file and assume it is provided by user:
-        # It should be kWh over half hourly periods. First column should be datetime and next one should be kWh
+        # the format should be NEM12 format. We assume if the input has more than 3 columns it is
+        # provided in the NEM12 format and follows the standard format:
+        # https://www.aemo.com.au/-/media/Files/Electricity/NEM/Retail_and_Metering/Metering-Procedures/2018/MDFF-Specification-NEM12--NEM13-v106.pdf
 
-        sample_load = user_input_load_profile.copy()
+        if user_input_load_profile.shape[1] > 3:
+            NEM12_1 = user_input_load_profile.copy()
+
+            Chunks = np.where(NEM12_1[0] == 200)[0]
+            for i in range(0, len(Chunks)):
+                if NEM12_1.iloc[Chunks[i], 3] == 'B1':
+                    NEM12_2 = NEM12_1.iloc[Chunks[i] + 1: Chunks[i + 1] - 1, :].copy()
+
+            NEM12_2 = NEM12_2[NEM12_2[0] == 300].copy()
+            NEM12_2[1] = NEM12_2[1].astype(int).astype(str)
+
+            Nem12 = NEM12_2.iloc[:, 1:49].melt(id_vars=[1], var_name="HH", value_name="kWh")
+            Nem12['kWh'] = Nem12['kWh'].astype(float)
+            Nem12['Datetime'] = pd.to_datetime(Nem12[1], format='%Y%m%d') + pd.to_timedelta(Nem12['HH'] * 30, unit='m')
+            Nem12.sort_values('Datetime', inplace=True)
+            Nem12.reset_index(inplace=True, drop=True)
+            sample_load = Nem12[['Datetime', 'kWh']].copy()
+        else:
+            sample_load = user_input_load_profile.copy()
+            sample_load[0] = pd.to_datetime(sample_load[0], format='%d/%m/%Y %H:%M')
+
+
         sample_load.rename(columns={sample_load.columns[0]: 'READING_DATETIME', sample_load.columns[1]: 'kWh'},
                            inplace=True)
-        sample_load['READING_DATETIME'] = pd.to_datetime(sample_load['READING_DATETIME'], infer_datetime_format=True)
+        # sample_load['READING_DATETIME'] = pd.to_datetime(sample_load['READING_DATETIME'], format='%d/%m/%Y %H:%M')
         sample_load['TS_N'] = sample_load['READING_DATETIME'].dt.normalize()
 
         # 1- Temperature data of the same period of time should be grabbed from NASA website
         start_date = sample_load['READING_DATETIME'].min().strftime('%Y%m%d')
         end_date = sample_load['READING_DATETIME'].max().strftime('%Y%m%d')
 
+        if first_pass == True:
+            LocLat = -34
+            LocLong = 151
+        else:
+            LocLat = user_inputs['lat']
+            LocLong = user_inputs['long']
         # first check CEEM API centre
         url2 = 'https://energytariff.herokuapp.com/weather/{}/{}/{}/{}'.format(start_date, end_date,
-                                                                    str(user_inputs['lat']), str(user_inputs['long']))
+                                                                    str(LocLat), str(LocLong))
         temp_data2 = requests.get(url2)
         temp_data2 = temp_data2.json()
         if len(temp_data2) > 1:
@@ -731,7 +758,7 @@ def load_estimator(user_inputs, distributor, user_input_load_profile):
 
     return load_profile
 
-
+# -------------------- Battery Calculator function -----------
 def battery(tariff, profiles_b, battery_kw, battery_kwh, distributor):
     # BattPow = 5  # 5KW
     # BattCap = 5  # 5kWh
@@ -839,12 +866,12 @@ def battery(tariff, profiles_b, battery_kw, battery_kwh, distributor):
         profiles_b = profiles_tou.copy()
     return profiles_b
 
-# ---------- Main Function -----------
 
+# ---------- Main Function -----------
 def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw, battery_kwh, distributor,
-               user_input_load_profile):
+               user_input_load_profile, first_pass=False):
     # First the load profile is estimated using the user input data
-    load_profile = load_estimator(user_inputs, distributor, user_input_load_profile)
+    load_profile = load_estimator(user_inputs, distributor, user_input_load_profile, first_pass)
 
     load_profile = load_profile.sort_values('TS')
     # and the bill should be calculated using the load profile

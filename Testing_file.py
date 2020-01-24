@@ -23,9 +23,11 @@ from saving_estimator import saving_est   # here we only import to test this fun
 # 1- user inputs:
 user_inputs = json.load(open('user_inputs_Default.json'))
 # The default values are saved in user_inputs_Default.json.
-# if user provided load profile (here we assume it is saved in csv file)
-user_input_load_profile = pd.read_csv('SelfProvided_LoadProfile_Example.csv')
-user_input_load_profile['TS'] = pd.to_datetime(user_input_load_profile['TS'], format='%d/%m/%Y %H:%M')
+# if user provided load profile (here we assume it is saved in csv file and is in NEM12 format)
+user_input_load_profile = pd.read_csv('SampleNEM12.csv', header=None)
+# user_input_load_profile= pd.read_csv('SelfProvided_LoadProfile_Example.csv', header=None,skiprows=1)
+
+# user_input_load_profile['TS'] = pd.to_datetime(user_input_load_profile['TS'], format='%d/%m/%Y %H:%M')
 
 # 2- PV profile: (it's in kW output, hourly, local time, no daylight saving)
 
@@ -59,35 +61,9 @@ distributor = 'Ausgrid'
 
 #  Running the function to get the result (with battery it takes 13 sec in my PC. without battery it's few seconds)
 
-# user_inputs['load_profile_provided']='yes'
+user_inputs['load_profile_provided']='yes'
 
 user_inputs['previous_usage']=[{"total": "N/A", "peak": 300, "offpeak": 300, "shoulder": 300,
              "start_date": "2019-08-12", "end_date": "2019-08-14"}]
 
 Results = saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw, battery_kwh, distributor, user_input_load_profile)
-
-
-# Testing output results
-import ast
-
-# reading load file
-load_text_file = open("LPoutputSample.txt", "r")
-x = load_text_file.readlines()
-b = ast.literal_eval(x[0])
-x2 = pd.DataFrame(b)
-x2.columns = ['TS_Epoch', 'kWh', 'kW', 'TOU']
-x2['TS'] = pd.to_datetime(x2['TS_Epoch'], unit='ms')
-
-LoadOutput = x2.copy()
-
-# reading PV file
-text_file = open("PVOutputSample2.txt", "r")
-x = text_file.readlines()
-x[0] = x[0].replace('â†µ', ' ')
-
-span = 2
-x2 = x[0].split(" ")
-x3 = [" ".join(x2[i:i+span]) for i in range(0, len(x2), span)]
-x4 = pd.DataFrame([sub.split(",") for sub in x3])
-
-PVOutput = x4.copy()
