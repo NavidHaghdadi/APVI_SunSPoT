@@ -359,11 +359,11 @@ def load_estimator(user_inputs, distributor, user_input_load_profile, first_pass
     if user_inputs['controlled_load'] == 'yes':
         demog_info['CONTROLLED_LOAD_CNT'] = 1
 
-    if user_inputs['dryer_usage'] == 'high':
+    if user_inputs['dryer_usage'].lower() == 'high':
         demog_info['DRYER_USAGE_CD'] = 3
-    elif user_inputs['dryer_usage'] == 'medium':
+    elif user_inputs['dryer_usage'].lower() == 'medium':
         demog_info['DRYER_USAGE_CD'] = 2
-    elif user_inputs['dryer_usage'] == 'low':
+    elif user_inputs['dryer_usage'].lower() == 'low':
         demog_info['DRYER_USAGE_CD'] = 1
     else:
         demog_info['DRYER_USAGE_CD'] = 0
@@ -604,8 +604,7 @@ def load_estimator(user_inputs, distributor, user_input_load_profile, first_pass
 
         # if Usage provided: all usage or peak/offpeak/shoulder
         if len(user_inputs['previous_usage']) > 0:
-
-            if user_inputs['smart_meter'] == 'yes':
+            if 'peak' in user_inputs['previous_usage'][0]:
                 with open('AllTOU.json') as f:
                     all_tou = json.load(f)
                 for i in range(len(all_tou)):
