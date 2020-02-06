@@ -604,8 +604,7 @@ def load_estimator(user_inputs, distributor, user_input_load_profile, first_pass
 
         # if Usage provided: all usage or peak/offpeak/shoulder
         if len(user_inputs['previous_usage']) > 0:
-
-            if user_inputs['smart_meter'] == 'yes':
+            if 'peak' in user_inputs['previous_usage'][0]:
                 with open('AllTOU.json') as f:
                     all_tou = json.load(f)
                 for i in range(len(all_tou)):
