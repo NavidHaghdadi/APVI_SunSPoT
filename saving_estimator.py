@@ -446,6 +446,7 @@ def load_estimator(user_inputs, distributor, user_input_load_profile, first_pass
             NEM12_2[1] = NEM12_2[1].astype(int).astype(str)
 
             Nem12 = NEM12_2.iloc[:, 1:49].melt(id_vars=[1], var_name="HH", value_name="kWh")
+            Nem12['HH']= Nem12['HH']-1
             Nem12['kWh'] = Nem12['kWh'].astype(float)
             Nem12['Datetime'] = pd.to_datetime(Nem12[1], format='%Y%m%d') + pd.to_timedelta(Nem12['HH'] * 30, unit='m')
             Nem12.sort_values('Datetime', inplace=True)
@@ -877,32 +878,42 @@ def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw,
     old_bill = bill_calculator(load_profile, selected_tariff)
 
     # Now create a new load using the PV profile
-    net_load = load_profile.copy()
+    # net_load = load_profile.copy()
+    net_load =load_profile[['TS','kWh']].copy()
+    net_load.rename(columns={'kWh': 'Load'}, inplace=True)
+    net_load = net_load.set_index('TS')
+
     pv_profile['TS'] = pv_profile['TS'].apply(lambda dt: dt.replace(year=1990))
     pv_profile = pv_profile.sort_values('TS')
     pv_profile = pv_profile.set_index('TS')
+    pv_profile = pv_profile.shift(1).copy() # as actually the PV hourly data is generated for the sun position in half hour.
     pv_profile = pv_profile.resample('30min').bfill().copy()
     pv_profile['PV'] = pv_profile['PV']/2 # converting kw to kwh
-    pv_profile.reset_index(inplace=True)
+    pv_profile = pv_profile.fillna(0).copy()
+    # pv_profile.reset_index(inplace=True)
 
     # Check and convert both load and PV profiles to half hourly
-    net_load['kWh'] = net_load['kWh'] - pv_profile['PV']
-    new_bill = bill_calculator(net_load, selected_tariff)
+    net_load = pd.merge(net_load, pv_profile, left_index=True, right_index=True,how='outer')
+    # net_load['kWh'] = net_load['kWh'] - pv_profile['PV']
+    net_load.fillna(0,inplace=True)
+    net_load['net_pv'] = net_load['Load'] - net_load['PV']
+    LP=net_load[['net_pv']].reset_index().rename(columns={'net_pv':'kWh'})
+    new_bill = bill_calculator(LP, selected_tariff)
     pv_generation = pv_profile.PV.sum()
     total_saving_solar_only = old_bill['Retailer']['Bill'].values[0] - new_bill['Retailer']['Bill'].values[0]
     saving_due_to_not_using_grid_solar_only = total_saving_solar_only + new_bill['Retailer']['Charge_FiT_Rebate'].values[0]
     # Savings due to consuming PV energy instead of grid
 
     # Seasonal Pattern (1: Summer, 2: fall, 3: winter, 4: spring)
-    load_seasonal_pattern = load_profile[['TS', 'kWh']].copy()
-    load_seasonal_pattern['kWh'] = load_seasonal_pattern['kWh'] * 2  # convert to kW
+    load_seasonal_pattern = net_load[['Load']].reset_index()
+    load_seasonal_pattern['Load'] = load_seasonal_pattern['Load'] * 2  # convert to kW
     load_seasonal_pattern['hour'] = load_seasonal_pattern['TS'].dt.hour
     load_seasonal_pattern['season'] = (load_seasonal_pattern['TS'].dt.month % 12 + 3) // 3
     load_seasonal_pattern.drop(['TS'], inplace=True, axis=1)
     load_seasonal_pattern = load_seasonal_pattern.groupby(['season', 'hour'], as_index=False).mean()
     load_seasonal_pattern_json = load_seasonal_pattern.to_json(orient='values')
 
-    pv_seasonal_pattern = pv_profile[['TS', 'PV']].copy()
+    pv_seasonal_pattern = net_load[['PV']].reset_index()
     pv_seasonal_pattern['PV'] = pv_seasonal_pattern['PV'] * 2  # convert to kW
     pv_seasonal_pattern['hour'] = pv_seasonal_pattern['TS'].dt.hour
     pv_seasonal_pattern['season'] = (pv_seasonal_pattern['TS'].dt.month % 12 + 3) // 3
@@ -911,8 +922,8 @@ def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw,
     pv_seasonal_pattern_json = pv_seasonal_pattern.to_json(orient='values')
 
     # might remove LP from here and also the results
-    load_profile_kWh = load_profile.drop(columns=['kW'])
-    load_profile_json = load_profile_kWh.to_json(orient='values')
+    # load_profile_kWh = load_profile.drop(columns=['kW'])
+    load_profile_json = net_load.to_json(orient='values')
 
     results = {'Annual_PV_Generation': pv_generation, 'Annual_PV_Generation_per_kW': pv_generation / pv_size_kw,
                'Est_Annual_PV_export_SolarOnly': new_bill['LoadInfo']['Annual_kWh_exp'].values[0],
@@ -933,32 +944,38 @@ def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw,
     # If the tariff is TOU, the battery doesn't let you discharge at off-peak and shoulder times.
 
     if battery_kwh > 0:
-        profiles_b = pv_profile.copy()
+        # profiles_b = pv_profile.copy()
+
+        profiles_b=net_load[['Load','PV']].reset_index()
         profiles_b['PV'] = profiles_b['PV'] * 2  # convert to kW
-        profiles_b['Load'] = load_profile['kWh'] * 2  # convert to kW
+        profiles_b['Load'] = profiles_b['Load'] * 2  # convert to kW
         battery_result = battery(selected_tariff, profiles_b, battery_kw, battery_kwh, distributor)
-        net_load_batt = battery_result[['TS', 'NetLoad']].copy()
+        net_load_batt = battery_result[['TS', 'NetLoad']].set_index('TS')
         net_load_batt.rename(columns={'NetLoad': 'kWh'}, inplace=True)
         net_load_batt['kWh'] = net_load_batt['kWh'] / 2  # convert to kWh
+        new_bill_batt = bill_calculator(net_load_batt.reset_index(), selected_tariff)
+        total_saving_sol_batt = old_bill['Retailer']['Bill'].values[0] - new_bill_batt['Retailer']['Bill'].values[0]
+        saving_due_to_not_using_grid_sol_batt = total_saving_sol_batt + new_bill_batt['Retailer']['Charge_FiT_Rebate'].values[0]
+        net_load_batt.rename(columns={'kWh': 'net_pv_batt'}, inplace=True)
 
-        pv_batt_seasonal_pattern = net_load_batt[['TS', 'kWh']].copy()
-        pv_batt_seasonal_pattern['kWh'] = pv_batt_seasonal_pattern['kWh'] * 2  # convert to kW
+        net_load = pd.merge(net_load, net_load_batt, left_index=True, right_index=True, how='outer')
+
+        pv_batt_seasonal_pattern = net_load[['net_pv_batt']].reset_index()
+        pv_batt_seasonal_pattern['net_pv_batt'] = pv_batt_seasonal_pattern['net_pv_batt'] * 2  # convert to kW
         pv_batt_seasonal_pattern['hour'] = pv_batt_seasonal_pattern['TS'].dt.hour
         pv_batt_seasonal_pattern['season'] = (pv_batt_seasonal_pattern['TS'].dt.month % 12 + 3) // 3
         pv_batt_seasonal_pattern.drop(['TS'], inplace=True, axis=1)
         pv_batt_seasonal_pattern = pv_batt_seasonal_pattern.groupby(['season', 'hour'], as_index=False).mean()
         pv_batt_seasonal_pattern_json = pv_batt_seasonal_pattern.to_json(orient='values')
 
-        new_bill_batt = bill_calculator(net_load_batt, selected_tariff)
-        total_saving_sol_batt = old_bill['Retailer']['Bill'].values[0] - new_bill_batt['Retailer']['Bill'].values[0]
-        saving_due_to_not_using_grid_sol_batt = total_saving_sol_batt + new_bill_batt['Retailer']['Charge_FiT_Rebate'].values[0]
         # Savings due to consuming PV energy instead of grid
-        new_load_profile_json = battery_result.to_json(orient='values')
+        new_load_profile_json = net_load.to_json(orient='values')
         results.update({'Est_Annual_PV_export_sol_batt': new_bill_batt['LoadInfo']['Annual_kWh_exp'].values[0],
                         'Est_Annual_PV_self_consumption_sol_batt': pv_generation - new_bill_batt['LoadInfo']['Annual_kWh_exp'].values[0],
                         'Saving_due_to_not_using_grid_sol_batt': saving_due_to_not_using_grid_sol_batt,
                         'FiT_Payment_sol_batt': -1 * new_bill_batt['Retailer']['Charge_FiT_Rebate'].values[0],
                         'New_Bill_sol_batt': new_bill_batt['Retailer']['Bill'].values[0],
                         'pv_batt_seasonal_pattern_kW': pv_batt_seasonal_pattern_json,
-                        'Annual_Saving_sol_batt': total_saving_sol_batt, 'NewProfile': new_load_profile_json})
+                        'Annual_Saving_sol_batt': total_saving_sol_batt, 'NewProfile': new_load_profile_json,
+                        })
     return results
