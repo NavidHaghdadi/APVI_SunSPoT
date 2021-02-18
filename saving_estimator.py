@@ -1,5 +1,4 @@
 # This function is for estimating financial benefits of installing PV and battery
-# VERY IMPORTANT: ALL KW AND KWH SHOULD BE CHECKED AGAIN
 import numpy as np
 import pandas as pd
 import pickle
@@ -13,7 +12,6 @@ warnings.filterwarnings("ignore")
 
 
 # When user selects the area the PV profile is being generated
-# (currently inputted as a csv file e.g. H_output.csv from Jessie)
 # Also the load profile of user is being generated (with or without user's inputs)
 # And the tariff is selected by user as described in bill_calculator
 # a set of sample inputs for this function is provided in Testing_files.py
