@@ -437,24 +437,34 @@ def load_estimator(user_inputs, distributor, user_input_load_profile, first_pass
         if user_input_load_profile.shape[1] > 3:
             NEM12_1 = user_input_load_profile.copy()
 
-            Chunks = np.where(NEM12_1[0] == 200)[0]
-            for i in range(0, len(Chunks)):
-                if NEM12_1.iloc[Chunks[i], 3] == 'B1':
-                    NEM12_2 = NEM12_1.iloc[Chunks[i] + 1: Chunks[i + 1] - 1, :].copy()
+            Chunks = np.where((NEM12_1[NEM12_1.columns[0]] == 200)|(NEM12_1[NEM12_1.columns[0]] == 900))[0]
+            NEM12_2 = pd.DataFrame()
+            for i in range(0, len(Chunks)-1):
+                if NEM12_1.iloc[Chunks[i], 4].startswith('E'):
+                    this_part = NEM12_1.iloc[Chunks[i] + 1: Chunks[i + 1], :].copy()
+                    this_part = this_part[this_part[this_part.columns[0]] == 300].copy()
+                    this_part2 = this_part.iloc[:, 2:50]
+                    this_part2 = this_part2.astype(float)
+                    if (this_part2[this_part2 < 0.01].count().sum() / this_part2.count().sum()) < 0.3: # assume for controlled load more 30% of data points are zero
+                        NEM12_2 = NEM12_1.iloc[Chunks[i] + 1: Chunks[i + 1], :].copy()
+                        NEM12_2.reset_index(inplace=True, drop=True)
 
-            NEM12_2 = NEM12_2[NEM12_2[0] == 300].copy()
-            NEM12_2[1] = NEM12_2[1].astype(int).astype(str)
+            NEM12_2 = NEM12_2[NEM12_2[NEM12_2.columns[0]] == 300].copy()
+            NEM12_2[NEM12_2.columns[1]] = NEM12_2[NEM12_2.columns[1]].astype(int).astype(str)
 
-            Nem12 = NEM12_2.iloc[:, 1:49].melt(id_vars=[1], var_name="HH", value_name="kWh")
-            Nem12['HH']= Nem12['HH']-1
+            Nem12 = NEM12_2.iloc[:, 1:50].melt(id_vars=[1], var_name="HH", value_name="kWh") # it was 49.. need to check if Dan manually changed it
+            Nem12['HH'] = Nem12['HH']-1
             Nem12['kWh'] = Nem12['kWh'].astype(float)
+
             Nem12['Datetime'] = pd.to_datetime(Nem12[1], format='%Y%m%d') + pd.to_timedelta(Nem12['HH'] * 30, unit='m')
             Nem12.sort_values('Datetime', inplace=True)
+            # Nem12_ = Nem12.groupby(['Datetime','HH']).sum().reset_index()
             Nem12.reset_index(inplace=True, drop=True)
             sample_load = Nem12[['Datetime', 'kWh']].copy()
         else:
             sample_load = user_input_load_profile.copy()
-            sample_load[0] = pd.to_datetime(sample_load[0], format='%d/%m/%Y %H:%M')
+            sample_load[sample_load.columns[0]] = pd.to_datetime(sample_load[sample_load.columns[0]], format='%d/%m/%Y %H:%M',errors='coerce')
+            sample_load = sample_load.dropna()
 
 
         sample_load.rename(columns={sample_load.columns[0]: 'READING_DATETIME', sample_load.columns[1]: 'kWh'},
