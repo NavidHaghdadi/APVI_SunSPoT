@@ -876,8 +876,11 @@ def battery(tariff, profiles_b, battery_kw, battery_kwh, distributor):
 
 
 # ---------- Main Function -----------
+# def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw, battery_kwh, distributor,
+#                user_input_load_profile, first_pass=False, optimise_flag = True, panel_size =0, res_com_flag = 'Res', max_budget = 5000000, approx_roof_area = 10000):
 def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw, battery_kwh, distributor,
-               user_input_load_profile, first_pass=False):
+                   user_input_load_profile, first_pass=False):
+
     # First the load profile is estimated using the user input data
     load_profile = load_estimator(user_inputs, distributor, user_input_load_profile, first_pass)
 
@@ -985,5 +988,6 @@ def saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw,
                         'New_Bill_sol_batt': new_bill_batt['Retailer']['Bill'].values[0],
                         'pv_batt_seasonal_pattern_kW': pv_batt_seasonal_pattern_json,
                         'Annual_Saving_sol_batt': total_saving_sol_batt, 'NewProfile': new_load_profile_json,
+                        'Optimal_size': 6.6
                         })
     return results

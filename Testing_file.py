@@ -44,6 +44,9 @@ pv_size_kw = 3  # 3 kW
 # Suppose Icelab showed the list and user selected: Origin Flat Rate NSW (Endeavour area)
 
 tariff_name = "Origin Flat Rate NSW (Endeavour area)"
+tariff_name = "EnergyAustralia Flat_rate - Endeavour area"
+
+
 # tariff_name = "Power Direct TOU NSW"
 
 all_tariffs = requests.get('http://api.ceem.org.au/electricity-tariffs/retail')
@@ -64,6 +67,6 @@ distributor = 'Ausgrid'
 user_inputs['load_profile_provided']='yes'
 
 user_inputs['previous_usage']=[{"total": "N/A", "peak": 300, "offpeak": 300, "shoulder": 300,
-             "start_date": "2019-08-12", "end_date": "2019-08-14"}]
+             "start_date": "2021-07-12", "end_date": "2021-08-14"}]
 
 Results = saving_est(user_inputs, pv_profile, selected_tariff, pv_size_kw, battery_kw, battery_kwh, distributor, user_input_load_profile)

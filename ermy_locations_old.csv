@@ -14,6 +14,7 @@ Grafton,NSW,GR,25.0,153.03,-29.76,95570,58161,2460,True
 Lismore,NSW,LI,9.0,153.26,-28.83,94592,58214,2480,True
 Mascot (Sydney Airport),NSW,MA,6.0,151.2,-33.9,94767,66037,2020,True
 Moree,NSW,MO,213.0,149.9,-29.5,95527,53115,2400,True
+Nowra,NSW,NO,109.0,150.5,-35.0,94750,68072,2541,
 Orange,NSW,OR,947.4,149.1,-33.4,95726,63303,2800,True
 Parramatta North,NSW,PA,55.0,151.0,-33.81,94764,66124,2150,True
 Richmond,NSW,RI,19.0,150.8,-33.6,95753,67105,2753,True
@@ -21,6 +22,7 @@ Sub-Alpine (Cooma Airport),NSW,SU,930.0,148.97,-36.29,94921,70217,2630,True
 Sydney RO (Observatory Hill),NSW,SY,39.0,151.2,-33.9,94768,66062,2000,True
 Tamworth,NSW,TA,404.0,150.84,-31.08,95762,55325,2340,True
 Thredbo (Village),NSW,TH,1380.0,148.31,-36.5,95908,71041,2625,True
+Wagga,NSW,WA,212.0,147.5,-35.2,94910,72150,2650,
 Williamtown,NSW,WE,9.0,151.8,-32.8,94776,61078,2300,True
 Wollongong,NSW,WG,10.0,150.93,-34.37,94749,68228,2500,True
 Alice Springs,NT,AL,546.0,133.9,-23.8,94326,15590,0870,True
@@ -46,6 +48,7 @@ Roma,QLD,RM,303.0,148.78,-26.54,94515,43091,4455,True
 Toowoomba,QLD,TW,691.0,151.93,-27.58,95551,41529,4350,True
 Townsville,QLD,TO,4.3,146.8,-19.3,94294,32040,4810,True
 Weipa ,QLD,WP,10.8,141.9,-12.7,94170,27045,4874,True
+Willis Island,QLD,WS,8.1,150.0,-16.3,94299,200283,4871,
 Adelaide,SA,AD,48.0,138.6,-34.9,94675,23090,5000,True
 Adelaide Coastal (AMO),SA,AC,48.0,138.53,-34.96,94672,23034,5950,True
 Ceduna,SA,CE,15.3,133.7,-32.1,94653,18012,5690,True
@@ -118,6 +121,7 @@ Port Macquarie Airport,NSW,PM,5.0,152.9,-31.4,94786,60139,,True
 Scone Airport,NSW,SC,223.0,150.8,-32.0,95758,61363,,True
 Ulladulla AWS,NSW,UL,37.0,150.5,-35.4,94938,69138,,True
 Walgett Airport,NSW,WL,134.0,148.1,-30.0,95715,52088,,True
+Young Airport,NSW,YO,381.0,148.3,-34.3,94712,73138,,
 Batchelor Airport,NT,B5,105.0,131.0,-13.1,94125,14272,,True
 Pine Creek,NT,PC,43.0,131.2,-13.8,94131,14933,,True
 Gove Airport,NT,GV,53.0,136.8,-12.3,94150,14508,,True
@@ -130,19 +134,23 @@ Alva Beach,QLD,A1,8.0,147.5,-19.5,95296,33295,,True
 Birdsville Airport,QLD,BV,48.0,139.4,-25.9,95482,38026,,True
 Bundaberg Aero,QLD,B6,27.0,152.3,-24.9,94387,39128,,True
 Camooweal Township,QLD,C1,231.0,138.1,-19.9,94255,37010,,True
+Cooktown Airport,QLD,CT,9.0,145.2,-15.4,95283,31209,,
 Coolangatta,QLD,CL,6.0,153.5,-28.2,94592,40717,,True
 Emerald Airport,QLD,EM,190.0,148.2,-23.6,94363,35264,,True
 Gympie,QLD,GY,65.0,152.6,-26.2,94566,40093,,True
 Proserpine Airport,QLD,PP,25.0,148.5,-20.5,94365,33247,,True
 Maroochydore Airport,QLD,MS,4.0,153.1,-26.6,94569,40861,,True
+Coonawarra,SA,CW,58.0,140.8,-37.3,94817,26091,,
 Edinburgh RAAF,SA,EB,20.0,138.6,-34.7,95676,23083,,True
 Marree Aero,SA,M1,51.0,138.1,-29.7,95480,17126,,True
 Moomba Airport,SA,MM,38.0,140.2,-28.1,95481,17123,,True
+Naracoorte Aerodrome,SA,,50.0,140.7,-37.0,94820,26099,,
 Nuriootpa Viticultral,SA,NU,276.0,139.0,-34.5,94681,23373,,True
 Port Lincoln,SA,PL,8.0,135.9,-34.6,95661,18192,,True
 Parawa (2nd Valley Forestry AWS),SA,PR,342.0,138.3,-35.6,94811,23875,,True
 Strathalbyn Racecourse,SA,SN,58.0,138.9,-35.3,94814,24580,,True
 Tarcoola Aero,SA,TC,124.0,134.6,-30.7,94655,16098,,True
+Yunta Airstrip,SA,YT,300.0,139.6,-32.6,94684,20062,,
 Cape Sorell,TAS,SO,20.0,145.2,-42.2,94974,97000,,True
 Cressy Research Stn.,TAS,CY,150.0,147.1,-41.7,95969,91306,,True
 Devonport Airport,TAS,DV,10.0,146.4,-41.2,95960,91126,,True
@@ -159,6 +167,7 @@ Tunnack Fire Stn,TAS,TN,462.0,147.5,-42.5,94960,94195,,True
 Wynyard Airport,TAS,WD,12.0,145.7,-41.0,95957,91107,,True
 Avalon Airport,VIC,AV,8.0,144.5,-38.0,94854,87113,,True
 Bendigo Airport,VIC,B7,209.0,144.3,-36.7,94855,81123,,True
+Lake Eildon,VIC,EN,238.0,145.8,-37.2,94882,88023,,
 Frankston AWS,VIC,FR,6.0,145.1,-38.2,94871,86371,,True
 Geelong (Breakwater),VIC,GW,35.0,144.4,-38.2,94857,87184,,True
 Hamilton Airport,VIC,HM,242.0,142.1,-37.7,94829,90173,,True
